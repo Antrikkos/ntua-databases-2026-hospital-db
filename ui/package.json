@@ -1,0 +1,16 @@
+{
+  "name": "hygeiopolis-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bonus showcase UI for the Hygeiopolis database project (db2026)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mysql2": "^3.11.2"
+  }
+}
