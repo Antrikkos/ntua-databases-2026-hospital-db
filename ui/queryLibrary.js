@@ -23,9 +23,9 @@ const fs = require("fs");
 const SQL_DIR = path.resolve(__dirname, "..", "sql");
 
 const queryLibrary = {
-  Q1: {
+  Q01: {
     title: "Έσοδα ανά τμήμα / έτος / ΚΕΝ / ασφαλιστικό φορέα",
-    sqlFile: path.join(SQL_DIR, "Q1.sql"),
+    sqlFile: path.join(SQL_DIR, "Q01.sql"),
     params: [],
     executableSql: `
       SELECT
@@ -45,9 +45,9 @@ const queryLibrary = {
     `
   },
 
-  Q2: {
+  Q02: {
     title: "Ιατροί ειδικότητας + ένδειξη εφημερίας + #επεμβάσεων",
-    sqlFile: path.join(SQL_DIR, "Q2.sql"),
+    sqlFile: path.join(SQL_DIR, "Q02.sql"),
     params: [
       { name: "specialty", label: "Ειδικότητα", type: "text", defaultValue: "Καρδιολογία" }
     ],
@@ -74,9 +74,9 @@ const queryLibrary = {
     `
   },
 
-  Q3: {
+  Q03: {
     title: "Ασθενείς με >3 νοσηλείες στο ίδιο τμήμα",
-    sqlFile: path.join(SQL_DIR, "Q3.sql"),
+    sqlFile: path.join(SQL_DIR, "Q03.sql"),
     params: [],
     executableSql: `
       SELECT
@@ -94,9 +94,9 @@ const queryLibrary = {
     `
   },
 
-  Q4: {
+  Q04a: {
     title: "Μ.Ο. αξιολογήσεων συγκεκριμένου ιατρού (medical care + overall)",
-    sqlFile: path.join(SQL_DIR, "Q4.sql"),
+    sqlFile: path.join(SQL_DIR, "Q04a.sql"),
     notes: "Επίλεξε πραγματικό ΑΜΚΑ ιατρού από τη βάση. Στο sql/Q4.sql υπάρχει η EXPLAIN ANALYZE έκδοση + FORCE INDEX.",
     params: [
       { name: "doctorAmka", label: "ΑΜΚΑ Ιατρού", type: "text", defaultValue: "" }
@@ -116,9 +116,31 @@ const queryLibrary = {
     `
   },
 
-  Q5: {
+  Q04b: {
+    title: "Μ.Ο. αξιολογήσεων συγκεκριμένου ιατρού (medical care + overall)",
+    sqlFile: path.join(SQL_DIR, "Q04b.sql"),
+    notes: "Επίλεξε πραγματικό ΑΜΚΑ ιατρού από τη βάση. Στο sql/Q4.sql υπάρχει η EXPLAIN ANALYZE έκδοση + FORCE INDEX.",
+    params: [
+      { name: "doctorAmka", label: "ΑΜΚΑ Ιατρού", type: "text", defaultValue: "" }
+    ],
+    executableSql: `
+      SELECT
+        d.staff_amka,
+        s.last_name,
+        AVG(ed.medical_care) AS Avg_Medical_Care,
+        AVG(eh.overall_experience) AS Avg_Overall_Experience
+      FROM Doctors d
+      JOIN Staff s ON d.staff_amka = s.amka
+      JOIN Evaluation_Doctor ed ON d.staff_amka = ed.doctor_amka
+      JOIN Evaluation_Hospitalization eh ON ed.hospitalization_id = eh.hospitalization_id
+      WHERE d.staff_amka = :doctorAmka
+      GROUP BY d.staff_amka, s.last_name
+    `
+  },
+
+  Q05: {
     title: "Νέοι ιατροί (<35) με τις περισσότερες χειρουργικές επεμβάσεις",
-    sqlFile: path.join(SQL_DIR, "Q5.sql"),
+    sqlFile: path.join(SQL_DIR, "Q05.sql"),
     params: [],
     executableSql: `
       SELECT
@@ -136,9 +158,9 @@ const queryLibrary = {
     `
   },
 
-  Q6: {
+  Q06a: {
     title: "Ιστορικό νοσηλειών συγκεκριμένου ασθενή (+ μέσος όρος αξιολόγησης)",
-    sqlFile: path.join(SQL_DIR, "Q6.sql"),
+    sqlFile: path.join(SQL_DIR, "Q06a.sql"),
     notes: "Επίλεξε πραγματικό ΑΜΚΑ ασθενή. Στο sql/Q6.sql υπάρχει η EXPLAIN ANALYZE έκδοση + FORCE INDEX.",
     params: [
       { name: "patientAmka", label: "ΑΜΚΑ Ασθενή", type: "text", defaultValue: "" }
@@ -161,9 +183,34 @@ const queryLibrary = {
     `
   },
 
-  Q7: {
+  Q06b: {
+    title: "Ιστορικό νοσηλειών συγκεκριμένου ασθενή (+ μέσος όρος αξιολόγησης)",
+    sqlFile: path.join(SQL_DIR, "Q06b.sql"),
+    notes: "Επίλεξε πραγματικό ΑΜΚΑ ασθενή. Στο sql/Q6.sql υπάρχει η EXPLAIN ANALYZE έκδοση + FORCE INDEX.",
+    params: [
+      { name: "patientAmka", label: "ΑΜΚΑ Ασθενή", type: "text", defaultValue: "" }
+    ],
+    executableSql: `
+      SELECT
+        h.id AS Hospitalization_ID,
+        h.admission_date,
+        h.discharge_date,
+        icd_adm.description AS Admission_Diagnosis,
+        icd_dis.description AS Discharge_Diagnosis,
+        h.total_cost,
+        (eh.nursing_care + eh.cleanliness + eh.food + eh.overall_experience) / 4.0 AS Avg_Hospitalization_Rating
+      FROM Hospitalization h
+      LEFT JOIN ICD10_Catalog icd_adm ON h.admission_diagnosis_icd10 = icd_adm.code
+      LEFT JOIN ICD10_Catalog icd_dis ON h.discharge_diagnosis_icd10 = icd_dis.code
+      LEFT JOIN Evaluation_Hospitalization eh ON h.id = eh.hospitalization_id
+      WHERE h.patient_amka = :patientAmka
+      ORDER BY h.admission_date DESC
+    `
+  },
+
+  Q07: {
     title: "Αλλεργίες ανά δραστική ουσία (#ασθενείς, #φάρμακα)",
-    sqlFile: path.join(SQL_DIR, "Q7.sql"),
+    sqlFile: path.join(SQL_DIR, "Q07.sql"),
     params: [],
     executableSql: `
       SELECT
@@ -179,9 +226,9 @@ const queryLibrary = {
     `
   },
 
-  Q8: {
+  Q08: {
     title: "Προσωπικό χωρίς εφημερία σε συγκεκριμένη ημερομηνία / τμήμα",
-    sqlFile: path.join(SQL_DIR, "Q8.sql"),
+    sqlFile: path.join(SQL_DIR, "Q08.sql"),
     params: [
       { name: "shiftDate",      label: "Ημερομηνία",      type: "date", defaultValue: null },
       { name: "departmentName", label: "Όνομα Τμήματος", type: "text", defaultValue: "Καρδιολογία" }
@@ -221,9 +268,9 @@ const queryLibrary = {
     `
   },
 
-  Q9: {
+  Q09: {
     title: "Ασθενείς με ίδιο αριθμό ημερών νοσηλείας/έτος (>15 ημέρες)",
-    sqlFile: path.join(SQL_DIR, "Q9.sql"),
+    sqlFile: path.join(SQL_DIR, "Q09.sql"),
     params: [],
     executableSql: `
       WITH PatientYearlyStays AS (
