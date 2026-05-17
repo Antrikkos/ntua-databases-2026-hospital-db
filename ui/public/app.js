@@ -250,7 +250,7 @@ function renderActiveHospitalizations(rows) {
                   <button class="btn-discharge-hosp" data-id="${r.id}"
                           data-name="${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}"
                           data-admission="${escapeHtml(r.admission_date || "")}">
-                    ✓ Εξιτήριο
+                    Εξιτήριο
                   </button>
                 </td>
               </tr>`
@@ -555,10 +555,10 @@ async function loadTriageQueue() {
               <div class="queue-actions">
                 <button class="btn-admit" data-id="${r.id}" data-amka="${escapeHtml(r.patient_amka)}"
                         data-name="${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}">
-                  ➜ Νοσηλεία
+                  Νοσηλεία
                 </button>
                 <button class="btn-discharge linkish" data-id="${r.id}">
-                  ✓ Αποχώρηση με οδηγίες
+                  Αποχώρηση με οδηγίες
                 </button>
               </div>
             </div>`
@@ -809,6 +809,314 @@ async function openAdmitModal({ triage_id, patient_amka, patient_name }) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// REVIEWS / ΑΞΙΟΛΟΓΗΣΕΙΣ
+// ──────────────────────────────────────────────────────────────
+function starsDisplay(value, count) {
+  const v = Number(value);
+  if (!v || Number.isNaN(v)) return `<span class="stars-empty">— χωρίς αξιολογήσεις —</span>`;
+  const full = Math.round(v);
+  const stars = "★★★★★".slice(0, full) + "☆☆☆☆☆".slice(0, 5 - full);
+  return `<span class="stars" title="${v.toFixed(2)} / 5">${stars}</span> <span class="muted">${v.toFixed(2)}${count !== undefined ? ` · ${count} κριτικές` : ""}</span>`;
+}
+
+function buildRatingInput(name, current) {
+  // 1..5 radio buttons + an "uncleared" option (no rating)
+  const opts = [1, 2, 3, 4, 5]
+    .map(
+      (n) => `
+        <label class="rating-star">
+          <input type="radio" name="${name}" value="${n}" ${Number(current) === n ? "checked" : ""} />
+          <span>${n}</span>
+        </label>`
+    )
+    .join("");
+  return `<span class="rating-row">${opts}</span>`;
+}
+
+function renderRatingInputs() {
+  document.querySelectorAll("#new-review-form .rating-input").forEach((el) => {
+    const field = el.dataset.field;
+    el.innerHTML = buildRatingInput(field, null);
+  });
+}
+
+async function loadReviewsDoctorsSummary() {
+  const list = document.getElementById("reviews-doctors-list");
+  const counter = document.getElementById("reviews-doctors-count");
+  try {
+    const rows = await api("/api/reviews/doctors-summary");
+    counter.textContent = rows.length === 0 ? "— καμία αξιολόγηση —" : `${rows.length} ιατροί με αξιολογήσεις`;
+    if (rows.length === 0) {
+      list.innerHTML = '<div class="empty">Δεν υπάρχουν ακόμη αξιολογήσεις ιατρών.</div>';
+      return;
+    }
+    list.innerHTML = `
+      <div class="results-scroll">
+        <table>
+          <thead>
+            <tr><th>Ιατρός</th><th>Ειδικότητα</th><th>Βαθμίδα</th><th>Μ.Ο.</th><th>#</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(
+                (r) => `
+                <tr>
+                  <td>${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}</td>
+                  <td>${escapeHtml(r.specialty || "")}</td>
+                  <td>${escapeHtml(r.rank_ || "")}</td>
+                  <td>${starsDisplay(r.avg_medical_care, undefined)}</td>
+                  <td>${r.review_count}</td>
+                  <td><button class="linkish btn-doctor-reviews" data-amka="${escapeHtml(r.staff_amka)}">Προβολή</button></td>
+                </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`;
+    list.querySelectorAll(".btn-doctor-reviews").forEach((btn) => {
+      btn.addEventListener("click", () => showDoctorReviews(btn.dataset.amka));
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="empty error-msg">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function showDoctorReviews(amka) {
+  const panel = document.getElementById("reviews-doctor-detail-panel");
+  const summary = document.getElementById("reviews-doctor-summary");
+  const detail = document.getElementById("reviews-doctor-detail");
+  const nameSpan = document.getElementById("reviews-doctor-name");
+  try {
+    const data = await api(`/api/reviews/doctor/${encodeURIComponent(amka)}`);
+    const d = data.doctor;
+    nameSpan.textContent = `— ${(d.last_name || "") + " " + (d.first_name || "")}`;
+    summary.innerHTML = `
+      <table>
+        <tr>
+          <th>ΑΜΚΑ</th><td>${escapeHtml(d.staff_amka)}</td>
+          <th>Ειδικότητα</th><td>${escapeHtml(d.specialty || "")}</td>
+          <th>Βαθμίδα</th><td>${escapeHtml(d.rank_ || "")}</td>
+        </tr>
+        <tr>
+          <th>Μ.Ο. Ποιότητας ιατρ. φροντίδας</th>
+          <td colspan="5">${starsDisplay(d.avg_medical_care, d.review_count)}</td>
+        </tr>
+      </table>`;
+    if (data.reviews.length === 0) {
+      detail.innerHTML = '<div class="empty">Δεν υπάρχουν επιμέρους αξιολογήσεις.</div>';
+    } else {
+      detail.innerHTML = `
+        <div class="results-scroll">
+          <table>
+            <thead>
+              <tr><th>Νοσηλεία</th><th>Τμήμα</th><th>Ασθενής</th><th>Έξοδος</th><th>Βαθμός</th></tr>
+            </thead>
+            <tbody>
+              ${data.reviews
+                .map(
+                  (r) => `
+                  <tr>
+                    <td>#${r.hospitalization_id}</td>
+                    <td>${escapeHtml(r.department || "")}</td>
+                    <td>${escapeHtml((r.patient_last || "") + " " + (r.patient_first || ""))}</td>
+                    <td>${formatDateTime(r.discharge_date)}</td>
+                    <td>${starsDisplay(r.medical_care, undefined)}</td>
+                  </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    alert(`Σφάλμα: ${err.message}`);
+  }
+}
+
+async function loadReviewsHospList() {
+  const list = document.getElementById("reviews-hosp-list");
+  try {
+    const rows = await api("/api/reviews/hospitalizations");
+    if (rows.length === 0) {
+      list.innerHTML = '<div class="empty">Δεν υπάρχουν ολοκληρωμένες νοσηλείες.</div>';
+      return;
+    }
+    const evaluated = rows.filter((r) => Number(r.has_evaluation) === 1);
+    list.innerHTML = `
+      <div class="muted" style="margin-bottom:6px;">
+        ${evaluated.length} / ${rows.length} νοσηλείες έχουν αξιολογηθεί
+      </div>
+      <div class="results-scroll">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Ασθενής</th><th>Τμήμα</th><th>Έξοδος</th>
+                <th>Νοσηλ. φροντ.</th><th>Καθαρ.</th><th>Φαγητό</th><th>Συν. εμπ.</th><th>Ιατροί</th></tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map((r) =>
+                Number(r.has_evaluation) === 1
+                  ? `
+                  <tr>
+                    <td>#${r.id}</td>
+                    <td>${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}</td>
+                    <td>${escapeHtml(r.department || "")}</td>
+                    <td>${formatDateTime(r.discharge_date)}</td>
+                    <td>${r.nursing_care ?? "—"}</td>
+                    <td>${r.cleanliness ?? "—"}</td>
+                    <td>${r.food ?? "—"}</td>
+                    <td>${r.overall_experience ?? "—"}</td>
+                    <td>${r.doctor_reviews}</td>
+                  </tr>`
+                  : `
+                  <tr class="muted-row">
+                    <td>#${r.id}</td>
+                    <td>${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}</td>
+                    <td>${escapeHtml(r.department || "")}</td>
+                    <td>${formatDateTime(r.discharge_date)}</td>
+                    <td colspan="5"><em class="muted">— δεν έχει αξιολογηθεί —</em></td>
+                  </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    list.innerHTML = `<div class="empty error-msg">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function loadReviewsEligible() {
+  const sel = document.getElementById("review-hosp-select");
+  try {
+    const rows = await api("/api/reviews/eligible");
+    sel.innerHTML =
+      '<option value="">— επιλέξτε νοσηλεία —</option>' +
+      rows
+        .map(
+          (r) => `
+          <option value="${r.id}">
+            #${r.id} · ${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))} ·
+            ${escapeHtml(r.department || "")} · έξοδος ${escapeHtml((r.discharge_date || "").slice(0, 10))}
+          </option>`
+        )
+        .join("");
+  } catch (err) {
+    sel.innerHTML = `<option value="">σφάλμα: ${escapeHtml(err.message)}</option>`;
+  }
+}
+
+async function loadDoctorRatingsForHosp(hospId) {
+  const container = document.getElementById("review-doctor-ratings");
+  if (!hospId) {
+    container.innerHTML = '<div class="empty">— επιλέξτε πρώτα νοσηλεία —</div>';
+    return;
+  }
+  try {
+    const data = await api(`/api/reviews/hospitalization/${encodeURIComponent(hospId)}/doctors`);
+    if (!data.doctors.length) {
+      container.innerHTML =
+        '<div class="empty">Δεν βρέθηκαν ιατροί που συνταγογράφησαν κατά τη νοσηλεία.</div>';
+      return;
+    }
+    container.innerHTML = data.doctors
+      .map((d, idx) => {
+        const already = d.existing_rating !== null && d.existing_rating !== undefined;
+        return `
+          <div class="doctor-rating-row" data-amka="${escapeHtml(d.staff_amka || d.doctor_amka)}">
+            <div class="doctor-rating-name">
+              <strong>${escapeHtml((d.last_name || "") + " " + (d.first_name || ""))}</strong>
+              <span class="muted">· ${escapeHtml(d.specialty || "")} · ${escapeHtml(d.rank_ || "")}</span>
+              ${already ? `<span class="muted">· ήδη βαθμολογημένος (${d.existing_rating}/5)</span>` : ""}
+            </div>
+            <div class="doctor-rating-stars">
+              ${already
+                ? `<em class="muted">δεν επιτρέπεται επανυποβολή</em>`
+                : buildRatingInput(`doctor_rating_${idx}`, null)}
+              <input type="hidden" name="doctor_amka_${idx}" value="${escapeHtml(d.doctor_amka)}" />
+            </div>
+          </div>`;
+      })
+      .join("");
+  } catch (err) {
+    container.innerHTML = `<div class="empty error-msg">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function collectReviewPayload(form) {
+  const fd = new FormData(form);
+  const hospitalization_id = fd.get("hospitalization_id");
+  const get = (name) => {
+    const v = fd.get(name);
+    return v ? Number(v) : null;
+  };
+  const payload = {
+    hospitalization_id,
+    nursing_care: get("nursing_care"),
+    cleanliness: get("cleanliness"),
+    food: get("food"),
+    overall_experience: get("overall_experience"),
+    doctor_ratings: []
+  };
+  // Walk rows in the doctor ratings panel
+  document.querySelectorAll("#review-doctor-ratings .doctor-rating-row").forEach((row, idx) => {
+    const amkaInput = row.querySelector(`input[name="doctor_amka_${idx}"]`);
+    const radio = row.querySelector(`input[name="doctor_rating_${idx}"]:checked`);
+    if (amkaInput && radio) {
+      payload.doctor_ratings.push({
+        doctor_amka: amkaInput.value,
+        medical_care: Number(radio.value)
+      });
+    }
+  });
+  return payload;
+}
+
+async function initReviews() {
+  await Promise.all([loadReviewsDoctorsSummary(), loadReviewsHospList(), loadReviewsEligible()]);
+  renderRatingInputs();
+
+  document.getElementById("reviews-refresh-btn").addEventListener("click", () => {
+    Promise.all([loadReviewsDoctorsSummary(), loadReviewsHospList(), loadReviewsEligible()]).catch(() => {});
+  });
+
+  const hospSelect = document.getElementById("review-hosp-select");
+  hospSelect.addEventListener("change", () => loadDoctorRatingsForHosp(hospSelect.value));
+
+  const form = document.getElementById("new-review-form");
+  const msg = document.getElementById("new-review-message");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    msg.textContent = "";
+    msg.className = "meta";
+    const payload = collectReviewPayload(form);
+    if (!payload.hospitalization_id) {
+      msg.textContent = "Παρακαλώ επιλέξτε νοσηλεία.";
+      msg.classList.add("error-msg");
+      return;
+    }
+    try {
+      await api(`/api/reviews/hospitalization/${encodeURIComponent(payload.hospitalization_id)}`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      msg.textContent = "OK — η αξιολόγηση καταχωρήθηκε.";
+      msg.classList.add("success-msg");
+      form.reset();
+      renderRatingInputs();
+      document.getElementById("review-doctor-ratings").innerHTML =
+        '<div class="empty">— επιλέξτε πρώτα νοσηλεία —</div>';
+      await Promise.all([loadReviewsDoctorsSummary(), loadReviewsHospList(), loadReviewsEligible()]);
+    } catch (err) {
+      msg.textContent = `Σφάλμα: ${err.message}`;
+      msg.classList.add("error-msg");
+    }
+  });
+}
+
+// ──────────────────────────────────────────────────────────────
 // QUERIES Q1 - Q15
 // ──────────────────────────────────────────────────────────────
 let queryDefs = [];
@@ -884,6 +1192,7 @@ async function bootstrap() {
   await initHospitalizations().catch((e) => console.error("hospitalizations", e));
   await initPrescriptions().catch((e) => console.error("prescriptions", e));
   await initTriage().catch((e) => console.error("triage", e));
+  await initReviews().catch((e) => console.error("reviews", e));
   await initQueries().catch((e) => console.error("queries", e));
 }
 

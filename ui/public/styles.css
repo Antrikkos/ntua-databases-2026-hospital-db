@@ -270,6 +270,15 @@ th {
   white-space: pre;
 }
 
+/* Inline <code> outside the SQL viewer should blend with body copy */
+p code, .meta code, label code {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
 .linkish {
   background: transparent;
   border: 1px solid #c8d3e0;
@@ -292,6 +301,87 @@ th {
 .success-msg {
   color: #15803d;
   font-weight: 600;
+}
+
+/* ── Reviews tab ─────────────────────────────────────────── */
+.stars {
+  color: #d97706;
+  letter-spacing: 1px;
+  font-size: 1rem;
+}
+
+.stars-empty {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.review-fieldset {
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fafcff;
+}
+
+.review-fieldset legend {
+  padding: 0 6px;
+  color: #143c6b;
+  font-weight: 600;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.rating-row {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.rating-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border: 1px solid #c8d3e0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  background: #fff;
+}
+
+.rating-star input {
+  margin: 0;
+  accent-color: #d97706;
+}
+
+.rating-star:has(input:checked) {
+  border-color: #d97706;
+  background: #fef3c7;
+  font-weight: 600;
+}
+
+.doctor-rating-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.doctor-rating-row:last-child {
+  border-bottom: none;
+}
+
+.doctor-rating-name {
+  font-size: 0.9rem;
+}
+
+.muted-row td {
+  background: #f9fafb;
 }
 
 .results-scroll {
