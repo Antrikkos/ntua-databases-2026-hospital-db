@@ -53,7 +53,7 @@
 
         <div class="toolbar">
           <strong id="queue-count" class="muted">—</strong>
-          <button id="queue-refresh-btn" class="linkish">↻ Refresh</button>
+          <button id="queue-refresh-btn" class="linkish">Refresh</button>
           <label class="inline-check">
             <input type="checkbox" id="queue-autorefresh" checked /> Auto-refresh 10s
           </label>
@@ -104,7 +104,7 @@
         <div class="modal-card">
           <header class="modal-header">
             <h3>Εισαγωγή Ασθενούς για Νοσηλεία</h3>
-            <button class="modal-close" id="admit-modal-close" aria-label="Close">✕</button>
+            <button class="modal-close" id="admit-modal-close" aria-label="Close">x</button>
           </header>
           <div class="modal-body">
             <div id="admit-patient-info" class="admit-info"></div>
@@ -222,7 +222,7 @@
         <h2>Hospitalizations</h2>
 
         <div class="toolbar">
-          <button id="hosp-refresh-btn">↻ Refresh</button>
+          <button id="hosp-refresh-btn">Refresh</button>
           <span id="hosp-counts" class="muted">—</span>
         </div>
 
@@ -266,7 +266,7 @@
         <div class="modal-card">
           <header class="modal-header">
             <h3>Έξοδος Ασθενούς (Discharge)</h3>
-            <button class="modal-close" id="discharge-modal-close" aria-label="Close">✕</button>
+            <button class="modal-close" id="discharge-modal-close" aria-label="Close">x</button>
           </header>
           <div class="modal-body">
             <div id="discharge-patient-info" class="admit-info"></div>
@@ -306,7 +306,7 @@
           <article class="panel">
             <h3>Νέα Συνταγή</h3>
             <p class="meta">
-              ⚠️ Ο trigger <code>check_allergy_before_prescription</code> θα μπλοκάρει την εισαγωγή
+              Σημείωση: Ο trigger <code>check_allergy_before_prescription</code> θα μπλοκάρει την εισαγωγή
               αν κάποια δραστική ουσία του φαρμάκου βρίσκεται στις αλλεργίες του ασθενή.
             </p>
             <form id="new-prescription-form" class="form-grid">
@@ -344,7 +344,7 @@
           <article class="panel">
             <h3>Κορυφαίοι Ιατροί (Ποιότητα ιατρικής φροντίδας)</h3>
             <div class="toolbar">
-              <button id="reviews-refresh-btn" class="linkish">↻ Refresh</button>
+              <button id="reviews-refresh-btn" class="linkish">Refresh</button>
               <span id="reviews-doctors-count" class="muted">—</span>
             </div>
             <div id="reviews-doctors-list"></div>

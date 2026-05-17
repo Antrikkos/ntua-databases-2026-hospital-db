@@ -250,7 +250,7 @@ function renderActiveHospitalizations(rows) {
                   <button class="btn-discharge-hosp" data-id="${r.id}"
                           data-name="${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}"
                           data-admission="${escapeHtml(r.admission_date || "")}">
-                    ✓ Εξιτήριο
+                    Εξιτήριο
                   </button>
                 </td>
               </tr>`
@@ -555,10 +555,10 @@ async function loadTriageQueue() {
               <div class="queue-actions">
                 <button class="btn-admit" data-id="${r.id}" data-amka="${escapeHtml(r.patient_amka)}"
                         data-name="${escapeHtml((r.last_name || "") + " " + (r.first_name || ""))}">
-                  ➜ Νοσηλεία
+                  Νοσηλεία
                 </button>
                 <button class="btn-discharge linkish" data-id="${r.id}">
-                  ✓ Αποχώρηση με οδηγίες
+                  Αποχώρηση με οδηγίες
                 </button>
               </div>
             </div>`

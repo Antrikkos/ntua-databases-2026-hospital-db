@@ -270,6 +270,15 @@ th {
   white-space: pre;
 }
 
+/* Inline <code> outside the SQL viewer should blend with body copy */
+p code, .meta code, label code {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
 .linkish {
   background: transparent;
   border: 1px solid #c8d3e0;
