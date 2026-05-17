@@ -22,7 +22,6 @@
       <button class="tab" data-view="prescriptions">Prescriptions</button>
       <button class="tab" data-view="reviews">Αξιολογήσεις</button>
       <button class="tab" data-view="queries">Queries Q1-Q15</button>
-      <button class="tab" data-view="admin">⚙ Admin</button>
     </nav>
 
     <main class="content">
@@ -208,63 +207,14 @@
       <!-- ───────────────── DOCTORS ───────────────── -->
       <section id="view-doctors" class="view">
         <h2>Doctors</h2>
-        <div class="grid-two">
-          <article class="panel">
-            <h3>Αναζήτηση</h3>
-            <div class="toolbar">
-              <input id="doctor-search" type="text" placeholder="ΑΜΚΑ ή επώνυμο..." />
-              <select id="doctor-specialty">
-                <option value="">— Όλες οι ειδικότητες —</option>
-              </select>
-              <button id="doctor-search-btn">Search</button>
-            </div>
-            <div id="doctor-list"></div>
-          </article>
-
-          <article class="panel">
-            <h3>Νέος Ιατρός</h3>
-            <p class="meta">Δημιουργεί Staff + Doctors + Doctor_has_Department ατομικά.
-              Triggers επιβάλλουν: υποχρεωτικός επόπτης για Ειδικευόμενο, κυκλική εποπτεία.</p>
-            <form id="new-doctor-form" class="form-grid">
-              <label>ΑΜΚΑ <input name="amka" required maxlength="11" placeholder="11 ψηφία" /></label>
-              <label>Όνομα <input name="first_name" required /></label>
-              <label>Επώνυμο <input name="last_name" required /></label>
-              <label>Πατρώνυμο <input name="fathers_name" /></label>
-              <label>Ηλικία <input name="age" type="number" required min="22" max="80" /></label>
-              <label>Ημ. Πρόσληψης <input name="hire_date" type="date" required /></label>
-              <label>Email <input name="email" type="email" /></label>
-              <label>Τηλέφωνο <input name="phone" /></label>
-              <label>Αρ. Άδειας ΙΣ <input name="license_number" required placeholder="π.χ. ΑΘ-12345" /></label>
-              <label>Ειδικότητα
-                <select name="specialty" id="new-doctor-specialty" required>
-                  <option value="">— επίλεξε —</option>
-                </select>
-              </label>
-              <label>Βαθμίδα
-                <select name="rank" id="new-doctor-rank" required>
-                  <option value="">— επίλεξε —</option>
-                  <option value="Ειδικευόμενος">Ειδικευόμενος</option>
-                  <option value="Επιμελητής Β'">Επιμελητής Β΄</option>
-                  <option value="Επιμελητής Α'">Επιμελητής Α΄</option>
-                  <option value="Διευθυντής">Διευθυντής</option>
-                </select>
-              </label>
-              <label id="new-doctor-supervisor-label">Επόπτης
-                <select name="supervisor_amka" id="new-doctor-supervisor">
-                  <option value="">— κανείς —</option>
-                </select>
-              </label>
-              <label class="full">Τμήμα(τα)
-                <div id="new-doctor-depts" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;padding:8px;border:1px solid #bcccde;border-radius:8px;min-height:40px;max-height:160px;overflow-y:auto;">
-                  <span class="muted">Φόρτωση...</span>
-                </div>
-              </label>
-              <div id="new-doctor-supervisor-note" class="meta full" style="display:none;padding:6px 8px;border-radius:6px;"></div>
-              <button type="submit">Καταχώρηση Ιατρού</button>
-            </form>
-            <div id="new-doctor-message" class="meta"></div>
-          </article>
+        <div class="toolbar">
+          <input id="doctor-search" type="text" placeholder="ΑΜΚΑ ή επώνυμο..." />
+          <select id="doctor-specialty">
+            <option value="">— Όλες οι ειδικότητες —</option>
+          </select>
+          <button id="doctor-search-btn">Search</button>
         </div>
+        <div id="doctor-list"></div>
       </section>
 
       <!-- ───────────────── HOSPITALIZATIONS ───────────────── -->
@@ -486,78 +436,6 @@
         </div>
       </section>
 
-
-      <!-- ───────────────── ADMIN ───────────────── -->
-      <section id="view-admin" class="view">
-        <h2>⚙ Admin — Διαχείριση &amp; Διαγραφές</h2>
-
-        <div class="grid-two">
-          <!-- DELETE panel -->
-          <article class="panel">
-            <h3>🗑 Cascade Delete</h3>
-            <p class="meta">Επίλεξε τύπο → αναζήτησε → δες τι θα διαγραφεί → επιβεβαίωσε.</p>
-            <div class="toolbar">
-              <select id="admin-entity-type">
-                <option value="">— τύπος —</option>
-                <option value="patient">Ασθενής</option>
-                <option value="doctor">Ιατρός</option>
-                <option value="nurse">Νοσηλευτής</option>
-                <option value="hospitalization">Νοσηλεία</option>
-                <option value="shift">Βάρδια</option>
-                <option value="eval_hospitalization">Αξιολόγηση Νοσηλείας</option>
-                <option value="eval_doctor">Αξιολόγηση Ιατρού</option>
-              </select>
-              <input id="admin-search-input" type="text" placeholder="Αναζήτηση..." disabled style="flex:1" />
-            </div>
-            <div id="admin-results-list" class="results-scroll" style="display:none;max-height:220px;"></div>
-            <div id="admin-impact-box" style="display:none;margin-top:12px;">
-              <div style="background:#fef3c7;border:1px solid #f0c674;border-radius:8px;padding:12px;">
-                <strong style="color:#92400e;">⚠ Θα διαγραφούν επίσης:</strong>
-                <ul id="admin-impact-list" style="margin:8px 0 0;padding-left:18px;font-size:0.9rem;"></ul>
-                <div id="admin-eval-doctor-list" style="display:none;margin-top:8px;"></div>
-              </div>
-              <div style="margin-top:10px;display:flex;gap:8px;">
-                <button id="admin-confirm-delete">Επιβεβαίωση Διαγραφής</button>
-                <button id="admin-cancel-delete" style="background:#6b7280;border-color:#6b7280;">Άκυρο</button>
-              </div>
-            </div>
-            <div id="admin-delete-msg" class="meta" style="margin-top:8px;"></div>
-          </article>
-
-          <!-- SHIFTS panel -->
-          <article class="panel">
-            <h3>📅 Νέα Βάρδια</h3>
-            <p class="meta">Επίλεξε ημερομηνία, τύπο και τμήμα. Χρήση Auto-fill για αυτόματη πρόταση που τηρεί τους triggers (3 ιατροί / 6 νοσηλευτές / 2 διοικ.).</p>
-            <div class="form-grid" id="shift-meta-form">
-              <label>Ημερομηνία <input id="shift-date" type="date" required /></label>
-              <label>Τύπος
-                <select id="shift-type">
-                  <option value="Morning">Πρωινή 07:00-15:00</option>
-                  <option value="Afternoon">Απογευματινή 15:00-23:00</option>
-                  <option value="Night">Νυχτερινή 23:00-07:00</option>
-                </select>
-              </label>
-              <label>Τμήμα
-                <select id="shift-dept"></select>
-              </label>
-              <div style="grid-column:1/-1;display:flex;gap:8px;">
-                <button id="shift-autofill-btn">🤖 Auto-fill</button>
-                <button id="shift-manual-btn" style="background:#6b7280;border-color:#6b7280;">Χειροκίνητη επιλογή</button>
-              </div>
-            </div>
-            <div id="shift-staff-box" style="display:none;margin-top:12px;">
-              <div id="shift-counts" style="display:flex;gap:8px;margin-bottom:8px;font-size:0.85rem;"></div>
-              <div id="shift-autofill-warning" class="meta" style="margin-bottom:6px;"></div>
-              <div id="shift-staff-list" class="results-scroll" style="max-height:220px;"></div>
-              <div style="margin-top:10px;display:flex;gap:8px;">
-                <button id="shift-submit-btn">✓ Δημιουργία Βάρδιας</button>
-                <button id="shift-cancel-btn" style="background:#6b7280;border-color:#6b7280;">Άκυρο</button>
-              </div>
-              <div id="shift-submit-msg" class="meta" style="margin-top:6px;"></div>
-            </div>
-          </article>
-        </div>
-      </section>
     </main>
 
     <script src="./app.js"></script>

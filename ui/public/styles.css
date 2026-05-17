@@ -7,16 +7,16 @@
 
 body {
   margin: 0;
-  background: #f5f7fb;
-  color: #1d2733;
+  background: #fbf5f5; /* Changed from light blue-gray */
+  color: #331d1d;      /* Changed from dark slate-blue */
 }
 
 h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
-  color: #1d2733;
+  color: #331d1d;      /* Changed from dark slate-blue */
 }
 
 .app-header {
-  background: #143c6b;
+  background: #7d0000; 
   color: #fff;
   padding: 20px;
 }
@@ -48,23 +48,23 @@ h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
   gap: 8px;
   padding: 12px 20px;
   background: #fff;
-  border-bottom: 1px solid #dde4ee;
-  color: #1d2733;
+  border-bottom: 1px solid #eedddd; /* Changed from blueish border */
+  color: #331d1d;
   flex-wrap: wrap;
 }
 
 .tab {
-  border: 1px solid #c8d3e0;
+  border: 1px solid #e0c8c8; /* Changed from blueish border */
   background: #fff;
   border-radius: 8px;
   padding: 8px 12px;
   cursor: pointer;
-  color: #1d2733;
+  color: #331d1d;
 }
 
 .tab.active {
-  background: #143c6b;
-  border-color: #143c6b;
+  background: #7d0000;     /* Changed from dark blue to match header */
+  border-color: #7d0000;
   color: #fff;
 }
 
@@ -84,14 +84,14 @@ h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
 
 .card {
   background: #fff;
-  border: 1px solid #dbe3ee;
+  border: 1px solid #eedbdb; /* Changed from blueish border */
   border-radius: 10px;
   padding: 12px;
-  color: #1d2733;
+  color: #331d1d;
 }
 
 .card .label {
-  color: #55667a;
+  color: #551c1c;
   font-size: 0.82rem;
 }
 
@@ -109,10 +109,10 @@ h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
 
 .panel {
   background: #fff;
-  border: 1px solid #dbe3ee;
+  border: 1px solid #eedbdb; /* Changed from blueish border */
   border-radius: 10px;
   padding: 12px;
-  color: #1d2733;
+  color: #331d1d;
 }
 
 .panel h3 {
@@ -140,19 +140,19 @@ h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
 
 input, select, button, textarea {
   padding: 8px 10px;
-  border: 1px solid #bcccde;
+  border: 1px solid #decbcc; /* Changed from blueish border */
   border-radius: 8px;
   font: inherit;
 }
 
 input, select, textarea {
   background: #fff;
-  color: #1d2733;
+  color: #301d33;
 }
 
 button {
-  background: #143c6b;
-  border-color: #143c6b;
+  background: #6b146b;
+  border-color: #6b146b;
   color: #fff;
   cursor: pointer;
 }
@@ -165,11 +165,11 @@ table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
-  color: #1d2733;
+  color: #331d1d;
 }
 
 th, td {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #f0e2e2; /* Changed from slate border */
   padding: 7px;
   text-align: left;
   font-size: 0.9rem;
@@ -177,18 +177,18 @@ th, td {
 }
 
 th {
-  background: #f1f5f9;
+  background: #f9f1f1; /* Changed from slate-blue bg */
   position: sticky;
   top: 0;
 }
 
 .meta {
   margin: 8px 0;
-  color: #334155;
+  color: #553348;
 }
 
 .muted {
-  color: #64748b;
+  color: #8b647b;
   font-weight: 400;
   font-size: 0.8rem;
 }
@@ -210,7 +210,7 @@ th {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
   background: #fff;
-  border: 1px solid #dbe3ee;
+  border: 1px solid #eedbdb;
   border-radius: 10px;
   padding: 12px;
 }
@@ -241,19 +241,19 @@ th {
 .bar {
   height: 10px;
   border-radius: 6px;
-  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  background: linear-gradient(90deg, #eb2525, #ed3a3a); /* Changed from blue/purple to reds */
 }
 
 .empty {
   padding: 10px;
-  border: 1px dashed #c7d4e3;
+  border: 1px dashed #e3c7c7; /* Changed from blueish border */
   border-radius: 8px;
-  color: #66788e;
+  color: #8e6679;
 }
 
 .sql-view {
-  background: #0f1c2e;
-  color: #e6edf3;
+  background: #2e0f0f; /* Changed from dark navy to dark maroon */
+  color: #f3e6e6;      /* Changed from light blue text to light pinkish/red text */
   border-radius: 8px;
   padding: 12px;
   overflow-x: auto;
@@ -265,12 +265,11 @@ th {
 }
 
 .sql-view code {
-  color: #e6edf3;
+  color: #f3e6e6;
   font-family: inherit;
   white-space: pre;
 }
 
-/* Inline <code> outside the SQL viewer should blend with body copy */
 p code, .meta code, label code {
   font-family: inherit;
   font-size: inherit;
@@ -281,8 +280,8 @@ p code, .meta code, label code {
 
 .linkish {
   background: transparent;
-  border: 1px solid #c8d3e0;
-  color: #143c6b;
+  border: 1px solid #e0c8c8; /* Changed from blue border */
+  color: #6b146b;
   padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
@@ -290,7 +289,7 @@ p code, .meta code, label code {
 }
 
 .linkish:hover {
-  background: #eef3fa;
+  background: #faeeee; /* Changed from light blue hover */
 }
 
 .error-msg {
@@ -299,7 +298,7 @@ p code, .meta code, label code {
 }
 
 .success-msg {
-  color: #15803d;
+  color: #80153e;
   font-weight: 600;
 }
 
@@ -311,20 +310,20 @@ p code, .meta code, label code {
 }
 
 .stars-empty {
-  color: #94a3b8;
+  color: #b89494; /* Changed from slate gray */
   font-size: 0.85rem;
 }
 
 .review-fieldset {
-  border: 1px solid #dbe3ee;
+  border: 1px solid #eedbdb; /* Changed from blueish border */
   border-radius: 8px;
   padding: 10px 12px;
-  background: #fafcff;
+  background: #fffafa;       /* Changed from icy blue bg */
 }
 
 .review-fieldset legend {
   padding: 0 6px;
-  color: #143c6b;
+  color: #7d0000;            /* Changed from dark blue to header red */
   font-weight: 600;
 }
 
@@ -345,7 +344,7 @@ p code, .meta code, label code {
   align-items: center;
   gap: 2px;
   padding: 4px 8px;
-  border: 1px solid #c8d3e0;
+  border: 1px solid #e0c8c8; /* Changed from blueish border */
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.85rem;
@@ -369,7 +368,7 @@ p code, .meta code, label code {
   gap: 10px;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px dashed #e2e8f0;
+  border-bottom: 1px dashed #f0e2e2; /* Changed from slate border */
 }
 
 .doctor-rating-row:last-child {
@@ -381,13 +380,13 @@ p code, .meta code, label code {
 }
 
 .muted-row td {
-  background: #f9fafb;
+  background: #fbf9f9; /* Changed from cool gray */
 }
 
 .results-scroll {
   max-height: 460px;
   overflow: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #f0e2e2; /* Changed from slate border */
   border-radius: 8px;
 }
 
@@ -403,7 +402,7 @@ p code, .meta code, label code {
   grid-template-columns: 48px 1fr auto;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #dbe3ee;
+  border: 1px solid #eedbdb; /* Changed from blueish border */
   border-left-width: 6px;
   border-radius: 10px;
   background: #fff;
@@ -413,13 +412,13 @@ p code, .meta code, label code {
 .queue-row.u1 { border-left-color: #b91c1c; background: #fef2f2; }
 .queue-row.u2 { border-left-color: #ea580c; background: #fff7ed; }
 .queue-row.u3 { border-left-color: #ca8a04; background: #fefce8; }
-.queue-row.u4 { border-left-color: #2563eb; background: #eff6ff; }
-.queue-row.u5 { border-left-color: #64748b; background: #f8fafc; }
+.queue-row.u4 { border-left-color: #eb255e; background: #ffeff3; } /* Changed from blue to pinkish-red to keep it distinct from u1 */
+.queue-row.u5 { border-left-color: #8b6464; background: #fcf8f8; } /* Changed from slate to warm gray/brown */
 
 .queue-rank {
   font-size: 1.4rem;
   font-weight: 700;
-  color: #475569;
+  color: #694747; /* Changed from slate */
   text-align: center;
 }
 
@@ -433,13 +432,13 @@ p code, .meta code, label code {
 
 .queue-line2 {
   font-size: 0.85rem;
-  color: #475569;
+  color: #694747; /* Changed from slate */
   margin-bottom: 6px;
 }
 
 .queue-symptoms {
   background: #ffffffaa;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #f0e2e2; /* Changed from slate */
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 0.9rem;
@@ -454,9 +453,9 @@ p code, .meta code, label code {
 }
 
 .btn-admit {
-  background: #143c6b;
+  background: #6b1447;
   color: #fff;
-  border-color: #143c6b;
+  border-color: #6b1467;
 }
 
 .urgency-badge {
@@ -466,20 +465,20 @@ p code, .meta code, label code {
   font-size: 0.78rem;
   font-weight: 700;
   color: #fff;
-  background: #475569;
+  background: #694755;
 }
 
 .urgency-badge.u1 { background: #b91c1c; }
 .urgency-badge.u2 { background: #ea580c; }
 .urgency-badge.u3 { background: #ca8a04; }
-.urgency-badge.u4 { background: #2563eb; }
-.urgency-badge.u5 { background: #64748b; }
+.urgency-badge.u4 { background: #eb255e; } /* Changed from blue */
+.urgency-badge.u5 { background: #8b6464; } /* Changed from slate */
 
 /* ── Admit modal ── */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 28, 46, 0.55);
+  background: rgba(46, 15, 15, 0.55); /* Changed from dark navy transparent to dark maroon transparent */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -497,7 +496,7 @@ p code, .meta code, label code {
   width: min(720px, 100%);
   max-height: 90vh;
   overflow: auto;
-  box-shadow: 0 20px 60px rgba(15, 28, 46, 0.35);
+  box-shadow: 0 20px 60px rgba(46, 15, 15, 0.35); /* Switched shadow tint to warm */
 }
 
 .modal-header {
@@ -505,7 +504,7 @@ p code, .meta code, label code {
   justify-content: space-between;
   align-items: center;
   padding: 14px 18px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #f0e2e2; /* Changed from slate */
 }
 
 .modal-header h3 {
@@ -514,7 +513,7 @@ p code, .meta code, label code {
 
 .modal-close {
   background: transparent;
-  color: #475569;
+  color: #69475c;
   border: none;
   font-size: 1.1rem;
   cursor: pointer;
@@ -526,8 +525,8 @@ p code, .meta code, label code {
 }
 
 .admit-info {
-  background: #eef3fa;
-  border: 1px solid #c8d3e0;
+  background: #faeeee;       /* Changed from light blue */
+  border: 1px solid #e0c8c8; /* Changed from blueish border */
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 12px;

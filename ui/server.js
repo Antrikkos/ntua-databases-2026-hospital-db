@@ -28,7 +28,7 @@ function mondayOfCurrentWeek() {
 
 function normalizeQueryParams(id, incoming = {}) {
   const params = { ...incoming };
-  if (id === "Q8" && !params.shiftDate) params.shiftDate = today();
+  if (id === "Q08" && !params.shiftDate) params.shiftDate = today();
   if (id === "Q12" && !params.referenceDate) params.referenceDate = mondayOfCurrentWeek();
   return params;
 }
@@ -903,6 +903,8 @@ app.post("/api/reviews/hospitalization/:id", async (req, res) => {
     res.status(400).json({ error: msg });
   }
 });
+
+require("./routes_admin")(app);
 
 // ─────────────────────────────────────────────────────────────
 // Queries (Q1-Q15) — list, raw SQL, execute
