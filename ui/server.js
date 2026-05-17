@@ -676,6 +676,235 @@ app.get("/api/ken/search", async (req, res, next) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// Reviews (Evaluations) — hospitalization & doctor evaluations
+//
+// Σύμφωνα με την εκφώνηση (db2026.md):
+//   - Αξιολόγηση επιτρέπεται μόνο σε ασθενείς με ολοκληρωμένη νοσηλεία
+//     (triggers check_evaluation_hosp_completed / _doctor_completed).
+//   - Likert 1–5 (CHECK constraints στους πίνακες Evaluation_*).
+//   - Ο ασθενής μπορεί να αξιολογήσει κάθε ιατρό που του συνταγογράφησε
+//     κατά τη νοσηλεία του → derive μέσω Prescriptions/date range.
+// ─────────────────────────────────────────────────────────────
+
+// All completed hospitalizations + whether they already carry an evaluation
+app.get("/api/reviews/hospitalizations", async (_req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT h.id,
+             h.patient_amka,
+             p.first_name, p.last_name,
+             d.name AS department,
+             h.admission_date, h.discharge_date,
+             eh.nursing_care, eh.cleanliness, eh.food, eh.overall_experience,
+             (eh.hospitalization_id IS NOT NULL) AS has_evaluation,
+             (SELECT COUNT(*) FROM Evaluation_Doctor ed WHERE ed.hospitalization_id = h.id) AS doctor_reviews
+      FROM Hospitalization h
+      JOIN Patients p ON p.amka = h.patient_amka
+      JOIN Departments d ON d.id = h.department_id
+      LEFT JOIN Evaluation_Hospitalization eh ON eh.hospitalization_id = h.id
+      WHERE h.discharge_date IS NOT NULL
+      ORDER BY h.discharge_date DESC
+      LIMIT 200
+    `);
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Doctors leaderboard: avg medical_care + review count
+app.get("/api/reviews/doctors-summary", async (_req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT d.staff_amka,
+             s.first_name, s.last_name,
+             d.specialty, d.\`rank\` AS rank_,
+             COUNT(ed.medical_care) AS review_count,
+             ROUND(AVG(ed.medical_care), 2) AS avg_medical_care
+      FROM Doctors d
+      JOIN Staff s ON s.amka = d.staff_amka
+      LEFT JOIN Evaluation_Doctor ed ON ed.doctor_amka = d.staff_amka
+      GROUP BY d.staff_amka, s.first_name, s.last_name, d.specialty, d.\`rank\`
+      HAVING review_count > 0
+      ORDER BY avg_medical_care DESC, review_count DESC
+      LIMIT 100
+    `);
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reviews for a specific doctor (with hospitalization context)
+app.get("/api/reviews/doctor/:amka", async (req, res, next) => {
+  try {
+    const amka = req.params.amka;
+    const [doctor] = await query(
+      `
+      SELECT d.staff_amka, s.first_name, s.last_name, d.specialty, d.\`rank\` AS rank_,
+             COUNT(ed.medical_care) AS review_count,
+             ROUND(AVG(ed.medical_care), 2) AS avg_medical_care
+      FROM Doctors d
+      JOIN Staff s ON s.amka = d.staff_amka
+      LEFT JOIN Evaluation_Doctor ed ON ed.doctor_amka = d.staff_amka
+      WHERE d.staff_amka = :amka
+      GROUP BY d.staff_amka, s.first_name, s.last_name, d.specialty, d.\`rank\`
+      `,
+      { amka }
+    );
+    if (!doctor) return res.status(404).json({ error: "Doctor not found." });
+
+    const reviews = await query(
+      `
+      SELECT ed.hospitalization_id, ed.medical_care,
+             h.admission_date, h.discharge_date,
+             dep.name AS department,
+             h.patient_amka, p.first_name AS patient_first, p.last_name AS patient_last
+      FROM Evaluation_Doctor ed
+      JOIN Hospitalization h ON h.id = ed.hospitalization_id
+      JOIN Departments dep ON dep.id = h.department_id
+      JOIN Patients p ON p.amka = h.patient_amka
+      WHERE ed.doctor_amka = :amka
+      ORDER BY h.discharge_date DESC
+      LIMIT 100
+      `,
+      { amka }
+    );
+    res.json({ doctor, reviews });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Completed hospitalizations that don't have a hospitalization evaluation yet
+app.get("/api/reviews/eligible", async (_req, res, next) => {
+  try {
+    const rows = await query(`
+      SELECT h.id, h.patient_amka,
+             p.first_name, p.last_name,
+             d.name AS department,
+             h.admission_date, h.discharge_date
+      FROM Hospitalization h
+      JOIN Patients p ON p.amka = h.patient_amka
+      JOIN Departments d ON d.id = h.department_id
+      LEFT JOIN Evaluation_Hospitalization eh ON eh.hospitalization_id = h.id
+      WHERE h.discharge_date IS NOT NULL
+        AND eh.hospitalization_id IS NULL
+      ORDER BY h.discharge_date DESC
+      LIMIT 100
+    `);
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Prescribing doctors for a given hospitalization (those the patient may evaluate)
+app.get("/api/reviews/hospitalization/:id/doctors", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid hospitalization id" });
+
+    const [hosp] = await query(
+      `SELECT id, patient_amka, admission_date, discharge_date FROM Hospitalization WHERE id = :id`,
+      { id }
+    );
+    if (!hosp) return res.status(404).json({ error: "Hospitalization not found." });
+    if (!hosp.discharge_date) {
+      return res.status(400).json({ error: "Η νοσηλεία δεν έχει ολοκληρωθεί ακόμη." });
+    }
+
+    const doctors = await query(
+      `
+      SELECT DISTINCT pr.doctor_amka,
+             s.first_name, s.last_name,
+             d.specialty, d.\`rank\` AS rank_,
+             ed.medical_care AS existing_rating
+      FROM Prescriptions pr
+      JOIN Doctors d ON d.staff_amka = pr.doctor_amka
+      JOIN Staff s ON s.amka = pr.doctor_amka
+      LEFT JOIN Evaluation_Doctor ed
+             ON ed.doctor_amka = pr.doctor_amka
+            AND ed.hospitalization_id = :id
+      WHERE pr.patient_amka = :patient_amka
+        AND pr.start_date >= DATE(:admission_date)
+        AND pr.start_date <= DATE(:discharge_date)
+      ORDER BY s.last_name, s.first_name
+      `,
+      {
+        id,
+        patient_amka: hosp.patient_amka,
+        admission_date: hosp.admission_date,
+        discharge_date: hosp.discharge_date
+      }
+    );
+    res.json({ hospitalization: hosp, doctors });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Submit a hospitalization evaluation + per-doctor evaluations (atomic).
+// The completed-hospitalization rule is enforced by the BEFORE INSERT triggers.
+app.post("/api/reviews/hospitalization/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid hospitalization id" });
+
+    const b = req.body || {};
+    const likert = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isInteger(n) && n >= 1 && n <= 5 ? n : "BAD";
+    };
+    const scores = {
+      nursing_care: likert(b.nursing_care),
+      cleanliness: likert(b.cleanliness),
+      food: likert(b.food),
+      overall_experience: likert(b.overall_experience)
+    };
+    if (Object.values(scores).includes("BAD")) {
+      return res.status(400).json({ error: "Οι βαθμολογίες πρέπει να είναι ακέραιοι 1–5." });
+    }
+
+    const doctorRatings = Array.isArray(b.doctor_ratings) ? b.doctor_ratings : [];
+    for (const dr of doctorRatings) {
+      if (!dr.doctor_amka) return res.status(400).json({ error: "Λείπει doctor_amka σε αξιολόγηση ιατρού." });
+      const score = likert(dr.medical_care);
+      if (score === "BAD") return res.status(400).json({ error: "Η βαθμολογία ιατρού πρέπει να είναι 1–5." });
+      dr.medical_care = score;
+    }
+
+    await withTransaction(async (conn) => {
+      await conn.execute(
+        `
+        INSERT INTO Evaluation_Hospitalization
+          (hospitalization_id, nursing_care, cleanliness, food, overall_experience)
+        VALUES
+          (:hospitalization_id, :nursing_care, :cleanliness, :food, :overall_experience)
+        `,
+        { hospitalization_id: id, ...scores }
+      );
+      for (const dr of doctorRatings) {
+        if (dr.medical_care === null) continue;
+        await conn.execute(
+          `
+          INSERT INTO Evaluation_Doctor (hospitalization_id, doctor_amka, medical_care)
+          VALUES (:hospitalization_id, :doctor_amka, :medical_care)
+          `,
+          { hospitalization_id: id, doctor_amka: dr.doctor_amka, medical_care: dr.medical_care }
+        );
+      }
+    });
+
+    res.status(201).json({ ok: true, hospitalization_id: id });
+  } catch (error) {
+    const msg = error && error.sqlMessage ? error.sqlMessage : error.message;
+    res.status(400).json({ error: msg });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // Queries (Q1-Q15) — list, raw SQL, execute
 // ─────────────────────────────────────────────────────────────
 app.get("/api/queries", (_req, res) => {

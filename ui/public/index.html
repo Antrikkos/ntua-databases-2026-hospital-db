@@ -20,6 +20,7 @@
       <button class="tab" data-view="doctors">Doctors</button>
       <button class="tab" data-view="hospitalizations">Hospitalizations</button>
       <button class="tab" data-view="prescriptions">Prescriptions</button>
+      <button class="tab" data-view="reviews">Αξιολογήσεις</button>
       <button class="tab" data-view="queries">Queries Q1-Q15</button>
     </nav>
 
@@ -327,6 +328,85 @@
             <div id="new-prescription-message" class="meta"></div>
           </article>
         </div>
+      </section>
+
+      <!-- ───────────────── REVIEWS / ΑΞΙΟΛΟΓΗΣΕΙΣ ───────────────── -->
+      <section id="view-reviews" class="view">
+        <h2>Αξιολογήσεις Νοσηλείας &amp; Ιατρών</h2>
+        <p class="meta">
+          Σύμφωνα με την εκφώνηση, αξιολόγηση επιτρέπεται <strong>μόνο</strong> για ασθενείς με
+          <strong>ολοκληρωμένη</strong> νοσηλεία. Η κλίμακα είναι Likert <strong>1–5</strong>.
+          Ο ασθενής μπορεί να αξιολογήσει κάθε ιατρό που του <strong>συνταγογράφησε</strong>
+          κατά τη διάρκεια της νοσηλείας του.
+        </p>
+
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Κορυφαίοι Ιατροί (Ποιότητα ιατρικής φροντίδας)</h3>
+            <div class="toolbar">
+              <button id="reviews-refresh-btn" class="linkish">↻ Refresh</button>
+              <span id="reviews-doctors-count" class="muted">—</span>
+            </div>
+            <div id="reviews-doctors-list"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Αξιολογήσεις Νοσηλειών</h3>
+            <div id="reviews-hosp-list"></div>
+          </article>
+        </div>
+
+        <article class="panel" style="margin-top:16px;" id="reviews-doctor-detail-panel" hidden>
+          <h3>Αξιολογήσεις Ιατρού <small id="reviews-doctor-name" class="muted"></small></h3>
+          <div id="reviews-doctor-summary"></div>
+          <h4>Λεπτομέρειες</h4>
+          <div id="reviews-doctor-detail"></div>
+        </article>
+
+        <article class="panel" style="margin-top:16px;">
+          <h3>Καταχώρηση Νέας Αξιολόγησης</h3>
+          <p class="meta">
+            Επιλέξτε <strong>ολοκληρωμένη</strong> νοσηλεία (μόνο όσες δεν έχουν αξιολογηθεί
+            εμφανίζονται). Στη συνέχεια συμπληρώστε τα κριτήρια και — προαιρετικά — βαθμολογήστε
+            κάθε ιατρό που σας συνταγογράφησε κατά τη νοσηλεία.
+          </p>
+          <form id="new-review-form" class="form-grid">
+            <label class="full">
+              Νοσηλεία
+              <select name="hospitalization_id" id="review-hosp-select" required>
+                <option value="">— επιλέξτε νοσηλεία —</option>
+              </select>
+            </label>
+
+            <fieldset class="full review-fieldset">
+              <legend>Αξιολόγηση Νοσηλείας</legend>
+              <div class="review-grid">
+                <label>Ποιότητα νοσηλευτικής φροντίδας
+                  <span class="rating-input" data-field="nursing_care"></span>
+                </label>
+                <label>Καθαριότητα
+                  <span class="rating-input" data-field="cleanliness"></span>
+                </label>
+                <label>Φαγητό
+                  <span class="rating-input" data-field="food"></span>
+                </label>
+                <label>Συνολική εμπειρία
+                  <span class="rating-input" data-field="overall_experience"></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="full review-fieldset">
+              <legend>Αξιολόγηση Ιατρών που συνταγογράφησαν</legend>
+              <div id="review-doctor-ratings">
+                <div class="empty">— επιλέξτε πρώτα νοσηλεία —</div>
+              </div>
+            </fieldset>
+
+            <button type="submit">Καταχώρηση Αξιολόγησης</button>
+          </form>
+          <div id="new-review-message" class="meta"></div>
+        </article>
       </section>
 
       <!-- ───────────────── QUERIES Q1-Q15 ───────────────── -->
