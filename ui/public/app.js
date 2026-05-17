@@ -273,7 +273,6 @@ async function initDoctors() {
       amka:            fd.get("amka"),
       first_name:      fd.get("first_name"),
       last_name:       fd.get("last_name"),
-      fathers_name:    fd.get("fathers_name") || null,
       age:             Number(fd.get("age")),
       hire_date:       fd.get("hire_date"),
       email:           fd.get("email") || null,

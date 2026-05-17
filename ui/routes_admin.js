@@ -557,16 +557,15 @@ module.exports = function registerAdminRoutes(app) {
         // 1. Staff row
         await conn.execute(
           `INSERT INTO Staff
-             (amka, first_name, last_name, fathers_name, age, email, phone,
+             (amka, first_name, last_name, age, email, phone,
               hire_date, staff_type)
            VALUES
-             (:amka, :first_name, :last_name, :fathers_name, :age, :email, :phone,
+             (:amka, :first_name, :last_name, :age, :email, :phone,
               :hire_date, 'Doctor')`,
           {
             amka:         b.amka,
             first_name:   b.first_name,
             last_name:    b.last_name,
-            fathers_name: b.fathers_name || null,
             age:          Number(b.age),
             email:        b.email || null,
             phone:        b.phone || null,
