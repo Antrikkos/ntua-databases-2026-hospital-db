@@ -1,0 +1,4 @@
+Substance_1	Substance_2	Frequency
+Abacavir	Lamivudine	9
+Adapalene	Benzoyl Peroxide	8
+Colecalciferol	Alendronic Acid	6

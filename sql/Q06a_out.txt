@@ -1,0 +1,5 @@
+ERROR 1064 (42000) at line 9: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'ANALYZE
+SELECT 
+    h.id AS Hospitalization_ID,
+    h.admission_date,
+    h.d...' at line 1

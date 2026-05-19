@@ -13,7 +13,7 @@ FROM Doctors d
 JOIN Staff s ON d.staff_amka = s.amka
 JOIN Evaluation_Doctor ed ON d.staff_amka = ed.doctor_amka
 JOIN Evaluation_Hospitalization eh ON ed.hospitalization_id = eh.hospitalization_id
-WHERE d.staff_amka = 'ΑΜΚΑ_ΙΑΤΡΟΥ'
+WHERE d.staff_amka = '16257864602'
 GROUP BY d.staff_amka, s.last_name;
 
 

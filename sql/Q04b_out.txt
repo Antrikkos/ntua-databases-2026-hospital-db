@@ -1,0 +1,5 @@
+ERROR 1064 (42000) at line 7: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'ANALYZE
+SELECT 
+    d.staff_amka,
+    s.last_name,
+    AVG(ed.medical_care) A...' at line 1
