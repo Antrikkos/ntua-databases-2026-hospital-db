@@ -8,9 +8,12 @@
   </head>
   <body>
     <header class="app-header">
-      <h1>Γενικό Νοσοκομείο «Υγειόπολης»</h1>
-      <p class="subtitle">Database Showcase Frontend — db2026 (bonus)</p>
-      <div id="status-badge" class="status">Checking DB...</div>
+      <img src="./logo.png" alt="Λογότυπο Υγειόπολης" class="app-logo" />
+      <div class="app-header-text">
+        <h1>Γενικό Νοσοκομείο «Υγειόπολης»</h1>
+        <p class="subtitle">Database Showcase Frontend — db2026 (bonus)</p>
+        <div id="status-badge" class="status">Checking DB...</div>
+      </div>
     </header>
 
     <nav class="tabs">
@@ -21,6 +24,7 @@
       <button class="tab" data-view="hospitalizations">Hospitalizations</button>
       <button class="tab" data-view="prescriptions">Prescriptions</button>
       <button class="tab" data-view="reviews">Αξιολογήσεις</button>
+      <button class="tab" data-view="calendar">Πρόγραμμα Βαρδιών</button>
       <button class="tab" data-view="queries">Queries Q1-Q15</button>
       <button class="tab" data-view="admin">⚙ Admin</button>
     </nav>
@@ -461,6 +465,50 @@
             <button type="submit">Καταχώρηση Αξιολόγησης</button>
           </form>
           <div id="new-review-message" class="meta"></div>
+        </article>
+      </section>
+
+      <!-- ───────────────── CALENDAR / ΠΡΟΓΡΑΜΜΑ ΒΑΡΔΙΩΝ ───────────────── -->
+      <section id="view-calendar" class="view">
+        <h2>Πρόγραμμα Βαρδιών</h2>
+        <p class="meta">
+          Όλα τα τμήματα βρίσκονται σε εφημερία 24/7 σε τρεις 8-ωρες βάρδιες:
+          <strong>Πρωινή 07:00-15:00</strong>, <strong>Απογευματινή 15:00-23:00</strong>,
+          <strong>Νυχτερινή 23:00-07:00</strong>. Κάθε εφημερία απαιτεί ≥3 ιατρούς,
+          ≥6 νοσηλευτές και ≥2 διοικητικούς υπαλλήλους.
+        </p>
+
+        <div class="toolbar">
+          <button id="cal-prev-btn" class="linkish">&laquo; Προηγ.</button>
+          <strong id="cal-month-label" style="min-width:180px;text-align:center;">—</strong>
+          <button id="cal-next-btn" class="linkish">Επόμ. &raquo;</button>
+          <button id="cal-today-btn" class="linkish">Σήμερα</button>
+          <span style="flex:1"></span>
+          <label class="inline-check" style="gap:4px;">
+            Τμήμα
+            <select id="cal-dept-filter">
+              <option value="">— Όλα —</option>
+            </select>
+          </label>
+          <button id="cal-refresh-btn" class="linkish">↻ Refresh</button>
+        </div>
+
+        <article class="panel">
+          <div class="calendar-legend">
+            <span class="cal-badge cal-badge-M">Π</span> Πρωινή
+            <span class="cal-badge cal-badge-A">Α</span> Απογευματινή
+            <span class="cal-badge cal-badge-N">Ν</span> Νυχτερινή
+            <span class="muted" style="margin-left:auto;">Κλικ σε ημέρα για λεπτομέρειες</span>
+          </div>
+          <div id="cal-grid" class="cal-grid">
+            <div class="empty">Φόρτωση...</div>
+          </div>
+        </article>
+
+        <article class="panel" id="cal-day-panel" style="margin-top:16px;display:none;">
+          <h3>Βάρδιες <small id="cal-day-label" class="muted"></small></h3>
+          <div id="cal-day-shifts"></div>
+          <div id="cal-shift-detail" style="margin-top:12px;"></div>
         </article>
       </section>
 

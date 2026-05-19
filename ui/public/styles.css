@@ -16,9 +16,28 @@ h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
 }
 
 .app-header {
-  background: #7d0000; 
+  background: #7d0000;
   color: #fff;
   padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.app-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-logo {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #fff;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
 }
 
 .app-header h1 {
@@ -531,3 +550,172 @@ p code, .meta code, label code {
   padding: 10px 12px;
   margin-bottom: 12px;
 }
+
+/* ── Calendar tab ─────────────────────────────────────────── */
+.calendar-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #553348;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  background: #f0e2e2;
+  border: 1px solid #f0e2e2;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cal-grid .cal-dow {
+  background: #f9f1f1;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  color: #694755;
+}
+
+.cal-cell {
+  background: #fff;
+  min-height: 92px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.cal-cell:hover { background: #faeeee; }
+.cal-cell.cal-empty { background: #fbf5f5; cursor: default; }
+.cal-cell.cal-today { outline: 2px solid #7d0000; outline-offset: -2px; }
+.cal-cell.cal-selected { background: #fef3c7; }
+.cal-cell.cal-weekend { background: #fdf7f7; }
+.cal-cell.cal-weekend:hover { background: #faeeee; }
+
+.cal-date {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #331d1d;
+  margin-bottom: 2px;
+}
+.cal-cell.cal-today .cal-date { color: #7d0000; }
+
+.cal-shifts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cal-shift-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #331d1d;
+}
+
+.cal-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.cal-badge-M { background: #d97706; }  /* morning - amber */
+.cal-badge-A { background: #6b146b; }  /* afternoon - purple */
+.cal-badge-N { background: #1f2937; }  /* night - dark slate */
+
+.cal-shift-row .cal-counts {
+  font-size: 0.7rem;
+  color: #694755;
+}
+
+.cal-shift-row.cal-incomplete .cal-counts { color: #b91c1c; font-weight: 600; }
+
+.cal-day-shift-card {
+  border: 1px solid #eedbdb;
+  border-left-width: 6px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.cal-day-shift-card:hover { background: #faeeee; }
+.cal-day-shift-card.cal-shift-M { border-left-color: #d97706; }
+.cal-day-shift-card.cal-shift-A { border-left-color: #6b146b; }
+.cal-day-shift-card.cal-shift-N { border-left-color: #1f2937; }
+
+.cal-day-shift-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cal-day-shift-title {
+  font-weight: 600;
+  color: #331d1d;
+}
+
+.cal-day-shift-counts {
+  display: flex;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.cal-count-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f9f1f1;
+  border: 1px solid #f0e2e2;
+}
+
+.cal-count-pill.cal-count-ok { background: #d1fae5; border-color: #86efac; color: #065f46; }
+.cal-count-pill.cal-count-low { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+
+.cal-dept-group {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #f0e2e2;
+}
+
+.cal-dept-group-title {
+  font-weight: 600;
+  color: #7d0000;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+}
+
+.cal-staff-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 0.85rem;
+}
+
+.cal-staff-type {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.cal-staff-type.t-Doctor { background: #fce4ec; color: #7d0000; }
+.cal-staff-type.t-Nurse  { background: #d1fae5; color: #065f46; }
+.cal-staff-type.t-Admin  { background: #fef3c7; color: #92400e; }
