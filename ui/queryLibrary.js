@@ -456,33 +456,48 @@ const queryLibrary = {
     sqlFile: path.join(SQL_DIR, "Q15.sql"),
     params: [],
     executableSql: `
-      WITH TriageWithHosp AS (
+      WITH TriageMatched AS (
         SELECT
-          t.id AS triage_id,
+          t.id              AS triage_id,
           t.urgency_level,
           t.arrival_time,
-          t.patient_amka,
-          MIN(h.admission_date) AS matched_admission,
-          MIN(h.department_id) AS matched_dept_id
+          MIN(h.id)             AS hosp_id,
+          MIN(h.admission_date) AS admission_date,
+          MIN(h.department_id)  AS dept_id
         FROM Triage_Records t
         LEFT JOIN Hospitalization h
-          ON t.patient_amka = h.patient_amka
-         AND h.admission_date >= t.arrival_time
-         AND h.admission_date < DATE_ADD(t.arrival_time, INTERVAL 24 HOUR)
-        GROUP BY t.id, t.urgency_level, t.arrival_time, t.patient_amka
+          ON  t.patient_amka   = h.patient_amka
+          AND h.admission_date >= t.arrival_time
+          AND h.admission_date  < DATE_ADD(t.arrival_time, INTERVAL 24 HOUR)
+        GROUP BY t.id, t.urgency_level, t.arrival_time
+      ),
+      DeptNames AS (
+        SELECT
+          tm.urgency_level,
+          tm.triage_id,
+          tm.hosp_id,
+          tm.arrival_time,
+          tm.admission_date,
+          d.name AS dept_name
+        FROM TriageMatched tm
+        LEFT JOIN Departments d ON tm.dept_id = d.id
       )
       SELECT
-        twh.urgency_level AS Urgency_Level,
-        d.name AS Referred_Department,
-        COUNT(twh.triage_id) AS Total_Triage_Cases,
-        ROUND(COUNT(twh.matched_admission) / COUNT(twh.triage_id) * 100, 2) AS Hospitalization_Rate_Pct,
-        ROUND(AVG(CASE WHEN twh.matched_admission IS NOT NULL
-                       THEN TIMESTAMPDIFF(MINUTE, twh.arrival_time, twh.matched_admission)
-                  END), 1) AS Avg_Wait_Minutes
-      FROM TriageWithHosp twh
-      LEFT JOIN Departments d ON twh.matched_dept_id = d.id
-      GROUP BY twh.urgency_level, d.name
-      ORDER BY twh.urgency_level ASC, Total_Triage_Cases DESC
+        urgency_level                                            AS Urgency_Level,
+        COUNT(triage_id)                                         AS Total_Triage,
+        SUM(hosp_id IS NOT NULL)                                 AS Admitted_Count,
+        ROUND(SUM(hosp_id IS NOT NULL) / COUNT(triage_id) * 100, 1)
+                                                                 AS Hospitalization_Rate_Pct,
+        ROUND(AVG(
+          CASE WHEN hosp_id IS NOT NULL
+               THEN TIMESTAMPDIFF(MINUTE, arrival_time, admission_date)
+          END
+        ), 0)                                                    AS Avg_Wait_Min,
+        GROUP_CONCAT(DISTINCT dept_name ORDER BY dept_name SEPARATOR ' | ')
+                                                                 AS Referred_Departments
+      FROM DeptNames
+      GROUP BY urgency_level
+      ORDER BY urgency_level
     `
   }
 };

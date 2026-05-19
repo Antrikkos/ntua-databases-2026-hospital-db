@@ -209,7 +209,7 @@ const DELETE_CASCADES = {
   doctor: async (conn, amka) => {
     const result = {};
 
-    // Block: active surgeries by this doctor
+    // ── HARD BLOCKS ──
     const [active] = await conn.execute(
       `SELECT pr.id FROM Procedure_Records pr
          JOIN Hospitalization h ON pr.hospitalization_id = h.id
@@ -220,44 +220,42 @@ const DELETE_CASCADES = {
       throw new Error(`Δεν επιτρέπεται διαγραφή: ο ιατρός έχει ${active.length} επεμβάσεις σε ενεργή νοσηλεία.`);
     }
 
-    // Block: directs a department
     const [dirs] = await conn.execute(
       `SELECT id, name FROM Departments WHERE director_amka = :amka`, { amka });
     if (dirs.length > 0) {
       throw new Error(`Δεν επιτρέπεται διαγραφή: ο ιατρός διευθύνει τμήμα(τα): ${dirs.map(d => d.name).join(", ")}.`);
     }
 
-    // Cascade
-    const [pa] = await conn.execute(
-      `DELETE FROM Procedure_Assistants WHERE staff_amka = :amka`, { amka });
-    result.procedure_assistants = pa.affectedRows;
+    // Block if historical clinical records exist — audit trail must be preserved.
+    const [hist] = await conn.execute(
+      `SELECT
+         (SELECT COUNT(*) FROM Procedure_Records    WHERE main_surgeon_amk    = :amka) AS procs,
+         (SELECT COUNT(*) FROM Prescriptions        WHERE doctor_amka         = :amka) AS pres,
+         (SELECT COUNT(*) FROM Lab_Tests            WHERE ordering_doctor_amka = :amka) AS labs,
+         (SELECT COUNT(*) FROM Shift_Assignments    WHERE staff_amka          = :amka) AS shifts,
+         (SELECT COUNT(*) FROM Procedure_Assistants WHERE staff_amka          = :amka) AS asst`,
+      { amka }
+    );
+    const h = hist[0];
+    const total = Number(h.procs) + Number(h.pres) + Number(h.labs) + Number(h.shifts) + Number(h.asst);
+    if (total > 0) {
+      const parts = [];
+      if (h.procs  > 0) parts.push(`${h.procs} επεμβάσεις`);
+      if (h.asst   > 0) parts.push(`${h.asst} ως βοηθός`);
+      if (h.pres   > 0) parts.push(`${h.pres} συνταγές`);
+      if (h.labs   > 0) parts.push(`${h.labs} εξετάσεις`);
+      if (h.shifts > 0) parts.push(`${h.shifts} βάρδιες`);
+      throw new Error(`Δεν επιτρέπεται διαγραφή: ο ιατρός έχει κλινικό ιστορικό (${parts.join(", ")}). Τα ιστορικά δεδομένα πρέπει να διατηρηθούν.`);
+    }
 
-    // Unlink supervised residents (set NULL — they need re-assignment manually)
+    // ── SOFT CASCADE — only links and evaluations ──
     const [sup] = await conn.execute(
       `UPDATE Doctors SET supervisor_amka = NULL WHERE supervisor_amka = :amka`, { amka });
     result.supervised_residents_unlinked = sup.affectedRows;
 
-    // Procedure_Records: if completed (hosp has discharge), keep history by nulling FK
-    // But schema requires main_surgeon_amk NOT NULL → so we DELETE them
-    const [prr] = await conn.execute(
-      `DELETE FROM Procedure_Records WHERE main_surgeon_amk = :amka`, { amka });
-    result.procedures = prr.affectedRows;
-
-    const [lt] = await conn.execute(
-      `DELETE FROM Lab_Tests WHERE ordering_doctor_amka = :amka`, { amka });
-    result.lab_tests = lt.affectedRows;
-
-    const [pr] = await conn.execute(
-      `DELETE FROM Prescriptions WHERE doctor_amka = :amka`, { amka });
-    result.prescriptions = pr.affectedRows;
-
     const [ed] = await conn.execute(
       `DELETE FROM Evaluation_Doctor WHERE doctor_amka = :amka`, { amka });
     result.reviews = ed.affectedRows;
-
-    const [sa] = await conn.execute(
-      `DELETE FROM Shift_Assignments WHERE staff_amka = :amka`, { amka });
-    result.shift_assignments = sa.affectedRows;
 
     const [dhd] = await conn.execute(
       `DELETE FROM Doctor_has_Department WHERE doctor_amka = :amka`, { amka });
@@ -399,12 +397,20 @@ const DELETE_CASCADES = {
 
   shift: async (conn, id) => {
     const result = {};
-    const [sa] = await conn.execute(
-      `DELETE FROM Shift_Assignments WHERE shift_id = :id`, { id });
-    result.assignments = sa.affectedRows;
-    const [s] = await conn.execute(
-      `DELETE FROM Shifts WHERE id = :id`, { id });
-    result.shift = s.affectedRows;
+    // Set session var to bypass the 3/6/2 minimum check — we are deleting
+    // the entire shift, not just removing one assignment. The trigger
+    // reads @bypass_shift_min and skips its check when set.
+    await conn.execute(`SET @bypass_shift_min = 1`);
+    try {
+      const [sa] = await conn.execute(
+        `DELETE FROM Shift_Assignments WHERE shift_id = :id`, { id });
+      result.assignments = sa.affectedRows;
+      const [s] = await conn.execute(
+        `DELETE FROM Shifts WHERE id = :id`, { id });
+      result.shift = s.affectedRows;
+    } finally {
+      await conn.execute(`SET @bypass_shift_min = NULL`);
+    }
     return result;
   }
 };
@@ -557,15 +563,16 @@ module.exports = function registerAdminRoutes(app) {
         // 1. Staff row
         await conn.execute(
           `INSERT INTO Staff
-             (amka, first_name, last_name, age, email, phone,
+             (amka, first_name, last_name, fathers_name, age, email, phone,
               hire_date, staff_type)
            VALUES
-             (:amka, :first_name, :last_name, :age, :email, :phone,
+             (:amka, :first_name, :last_name, :fathers_name, :age, :email, :phone,
               :hire_date, 'Doctor')`,
           {
             amka:         b.amka,
             first_name:   b.first_name,
             last_name:    b.last_name,
+            fathers_name: b.fathers_name || null,
             age:          Number(b.age),
             email:        b.email || null,
             phone:        b.phone || null,
@@ -682,116 +689,70 @@ module.exports = function registerAdminRoutes(app) {
 
       const deptId = Number(department_id);
 
-      // Pull all staff with monthly counts + last shift info for filtering
-      // We'll use SQL to do the filtering work (faster than JS loops)
+      // Simplified query — fetch all candidate staff with monthly counts
+      // Rest violations and consecutive nights are checked in JS to avoid
+      // complex CASE expressions that cause "Bind parameters undefined" errors.
       const candidates = await query(
-        `
-        SELECT
-          s.amka,
-          s.first_name,
-          s.last_name,
-          s.staff_type,
-          doc.\`rank\` AS doctor_rank,
-          doc.specialty,
-          n.\`rank\` AS nurse_rank,
-          n.department_id AS nurse_dept,
-          a.role AS admin_role,
-          a.department_id AS admin_dept,
-          (SELECT COUNT(*)
-             FROM Shift_Assignments sa2
-             JOIN Shifts sh2 ON sh2.id = sa2.shift_id
-            WHERE sa2.staff_amka = s.amka
-              AND YEAR(sh2.shift_date) = YEAR(:shift_date)
-              AND MONTH(sh2.shift_date) = MONTH(:shift_date)
-          ) AS monthly_shifts,
-          (SELECT COUNT(*)
-             FROM Shift_Assignments sa3
-             JOIN Shifts sh3 ON sh3.id = sa3.shift_id
-            WHERE sa3.staff_amka = s.amka
-              AND sh3.shift_date = :shift_date
-              AND sh3.shift_type = :shift_type
-          ) AS already_on_this_shift,
-          -- Rest check: is there a shift ending within 8hrs of this one's start?
-          (SELECT COUNT(*)
-             FROM Shift_Assignments sa4
-             JOIN Shifts sh4 ON sh4.id = sa4.shift_id
-            WHERE sa4.staff_amka = s.amka
-              AND CASE :shift_type
-                    WHEN 'Morning'   THEN ABS(TIMESTAMPDIFF(HOUR,
-                                              CASE sh4.shift_type
-                                                WHEN 'Morning'   THEN CONCAT(sh4.shift_date,' 15:00:00')
-                                                WHEN 'Afternoon' THEN CONCAT(sh4.shift_date,' 23:00:00')
-                                                WHEN 'Night'     THEN CONCAT(DATE_ADD(sh4.shift_date,INTERVAL 1 DAY),' 07:00:00')
-                                              END,
-                                              CONCAT(:shift_date,' 07:00:00'))) < 8
-                    WHEN 'Afternoon' THEN ABS(TIMESTAMPDIFF(HOUR,
-                                              CASE sh4.shift_type
-                                                WHEN 'Morning'   THEN CONCAT(sh4.shift_date,' 15:00:00')
-                                                WHEN 'Afternoon' THEN CONCAT(sh4.shift_date,' 23:00:00')
-                                                WHEN 'Night'     THEN CONCAT(DATE_ADD(sh4.shift_date,INTERVAL 1 DAY),' 07:00:00')
-                                              END,
-                                              CONCAT(:shift_date,' 15:00:00'))) < 8
-                    WHEN 'Night'     THEN ABS(TIMESTAMPDIFF(HOUR,
-                                              CASE sh4.shift_type
-                                                WHEN 'Morning'   THEN CONCAT(sh4.shift_date,' 15:00:00')
-                                                WHEN 'Afternoon' THEN CONCAT(sh4.shift_date,' 23:00:00')
-                                                WHEN 'Night'     THEN CONCAT(DATE_ADD(sh4.shift_date,INTERVAL 1 DAY),' 07:00:00')
-                                              END,
-                                              CONCAT(:shift_date,' 23:00:00'))) < 8
-                  END
-              AND NOT (sh4.shift_date = :shift_date AND sh4.shift_type = :shift_type)
-          ) AS rest_violation,
-          -- Consecutive night count
-          (SELECT COUNT(*)
-             FROM Shift_Assignments sa5
-             JOIN Shifts sh5 ON sh5.id = sa5.shift_id
-            WHERE sa5.staff_amka = s.amka
-              AND sh5.shift_type = 'Night'
-              AND sh5.shift_date BETWEEN DATE_SUB(:shift_date, INTERVAL 3 DAY) AND DATE_SUB(:shift_date, INTERVAL 1 DAY)
-          ) AS recent_night_count
-        FROM Staff s
-        LEFT JOIN Doctors doc ON doc.staff_amka = s.amka
-        LEFT JOIN Nurses n ON n.staff_amka = s.amka
-        LEFT JOIN Admin_Staff a ON a.staff_amka = s.amka
-        LEFT JOIN Doctor_has_Department dhd ON dhd.doctor_amka = s.amka AND dhd.department_id = :department_id
-        WHERE
-          (s.staff_type = 'Doctor' AND dhd.doctor_amka IS NOT NULL)
-          OR (s.staff_type = 'Nurse' AND n.department_id = :department_id)
-          OR (s.staff_type = 'Admin' AND a.department_id = :department_id)
-        `,
-        { shift_date, shift_type, department_id: deptId }
+        `SELECT
+            s.amka, s.first_name, s.last_name, s.staff_type,
+            doc.\`rank\` AS doctor_rank, doc.specialty,
+            n.\`rank\`   AS nurse_rank,
+            a.role      AS admin_role,
+            (SELECT COUNT(*) FROM Shift_Assignments sa2
+               JOIN Shifts sh2 ON sh2.id = sa2.shift_id
+              WHERE sa2.staff_amka = s.amka
+                AND YEAR(sh2.shift_date)  = YEAR(:shift_date)
+                AND MONTH(sh2.shift_date) = MONTH(:shift_date)
+            ) AS monthly_shifts,
+            (SELECT COUNT(*) FROM Shift_Assignments sa3
+               JOIN Shifts sh3 ON sh3.id = sa3.shift_id
+              WHERE sa3.staff_amka = s.amka
+                AND sh3.shift_date = :shift_date
+                AND sh3.shift_type = :shift_type
+            ) AS already_on_this_shift,
+            (SELECT COUNT(*) FROM Shift_Assignments sa5
+               JOIN Shifts sh5 ON sh5.id = sa5.shift_id
+              WHERE sa5.staff_amka = s.amka
+                AND sh5.shift_type = 'Night'
+                AND sh5.shift_date BETWEEN DATE_SUB(:shift_date, INTERVAL 3 DAY)
+                                       AND DATE_SUB(:shift_date, INTERVAL 1 DAY)
+            ) AS recent_night_count
+         FROM Staff s
+         LEFT JOIN Doctors doc ON doc.staff_amka = s.amka
+         LEFT JOIN Nurses  n   ON n.staff_amka   = s.amka
+         LEFT JOIN Admin_Staff a ON a.staff_amka = s.amka
+         LEFT JOIN Doctor_has_Department dhd
+                ON dhd.doctor_amka = s.amka AND dhd.department_id = :dept_id
+         WHERE
+              (s.staff_type = 'Doctor' AND dhd.doctor_amka  IS NOT NULL)
+           OR (s.staff_type = 'Nurse'  AND n.department_id  = :dept_id)
+           OR (s.staff_type = 'Admin'  AND a.department_id  = :dept_id)`,
+        { shift_date, shift_type, dept_id: deptId }
       );
 
-      // Apply trigger rules: filter out those who can't work
+      // Apply trigger rules
       const MAX_MONTHLY = { Doctor: 15, Nurse: 20, Admin: 25 };
       const eligible = candidates.filter((c) =>
-        c.already_on_this_shift == 0 &&
-        c.rest_violation == 0 &&
-        c.monthly_shifts < MAX_MONTHLY[c.staff_type] &&
-        !(shift_type === "Night" && c.recent_night_count >= 3)
+        Number(c.already_on_this_shift) === 0 &&
+        Number(c.monthly_shifts) < MAX_MONTHLY[c.staff_type] &&
+        !(shift_type === "Night" && Number(c.recent_night_count) >= 3)
       );
 
-      // Split by role
       const doctors = eligible.filter((c) => c.staff_type === "Doctor");
-      const nurses = eligible.filter((c) => c.staff_type === "Nurse");
-      const admins = eligible.filter((c) => c.staff_type === "Admin");
+      const nurses  = eligible.filter((c) => c.staff_type === "Nurse");
+      const admins  = eligible.filter((c) => c.staff_type === "Admin");
 
-      // Pick 3 doctors with senior-present rule
       const SENIOR_RANKS = ["Επιμελητής Α'", "Διευθυντής"];
-      const seniors = doctors.filter((d) => SENIOR_RANKS.includes(d.doctor_rank));
-      const mid     = doctors.filter((d) => !SENIOR_RANKS.includes(d.doctor_rank) && d.doctor_rank !== "Ειδικευόμενος");
-      const residents = doctors.filter((d) => d.doctor_rank === "Ειδικευόμενος");
+      const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+      const sSeniors   = shuffle(doctors.filter((d) => SENIOR_RANKS.includes(d.doctor_rank)));
+      const sMid       = shuffle(doctors.filter((d) => !SENIOR_RANKS.includes(d.doctor_rank) && d.doctor_rank !== "Ειδικευόμενος"));
+      const sResidents = shuffle(doctors.filter((d) => d.doctor_rank === "Ειδικευόμενος"));
 
       const pickDocs = [];
-      // Prefer 1 senior + 2 mid; if no mid, fill with senior; only add residents if senior present
-      const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
-      const sSeniors = shuffle(seniors);
-      const sMid     = shuffle(mid);
-      const sResidents = shuffle(residents);
-
       if (sSeniors.length > 0) pickDocs.push(sSeniors[0]);
       for (const d of sMid) { if (pickDocs.length >= 3) break; pickDocs.push(d); }
       for (const d of sSeniors.slice(1)) { if (pickDocs.length >= 3) break; pickDocs.push(d); }
+      // Only add residents if a senior is already present
       if (pickDocs.some((d) => SENIOR_RANKS.includes(d.doctor_rank))) {
         for (const d of sResidents) { if (pickDocs.length >= 3) break; pickDocs.push(d); }
       }
@@ -800,27 +761,17 @@ module.exports = function registerAdminRoutes(app) {
       const pickAdmins = shuffle(admins).slice(0, 2);
 
       const warnings = [];
-      if (pickDocs.length < 3) warnings.push(`Μόνο ${pickDocs.length}/3 διαθέσιμοι ιατροί.`);
+      if (pickDocs.length < 3)   warnings.push(`Μόνο ${pickDocs.length}/3 διαθέσιμοι ιατροί.`);
       if (pickNurses.length < 6) warnings.push(`Μόνο ${pickNurses.length}/6 διαθέσιμοι νοσηλευτές.`);
       if (pickAdmins.length < 2) warnings.push(`Μόνο ${pickAdmins.length}/2 διαθέσιμοι διοικητικοί.`);
-      const hasSenior = pickDocs.some((d) => SENIOR_RANKS.includes(d.doctor_rank));
+      const hasSenior   = pickDocs.some((d) => SENIOR_RANKS.includes(d.doctor_rank));
       const hasResident = pickDocs.some((d) => d.doctor_rank === "Ειδικευόμενος");
-      if (hasResident && !hasSenior) warnings.push("Ειδικευόμενος χωρίς senior — απορρίπτεται από trigger.");
+      if (hasResident && !hasSenior) warnings.push("Ειδικευόμενος χωρίς senior.");
 
       res.json({
-        shift_date,
-        shift_type,
-        department_id: deptId,
-        suggested: {
-          doctors: pickDocs,
-          nurses: pickNurses,
-          admins: pickAdmins
-        },
-        counts: {
-          doctors: pickDocs.length,
-          nurses: pickNurses.length,
-          admins: pickAdmins.length
-        },
+        shift_date, shift_type, department_id: deptId,
+        suggested: { doctors: pickDocs, nurses: pickNurses, admins: pickAdmins },
+        counts:    { doctors: pickDocs.length, nurses: pickNurses.length, admins: pickAdmins.length },
         complete: pickDocs.length >= 3 && pickNurses.length >= 6 && pickAdmins.length >= 2 && hasSenior,
         warnings
       });
@@ -844,6 +795,33 @@ module.exports = function registerAdminRoutes(app) {
         return res.status(400).json({ error: "shift_type must be Morning|Afternoon|Night" });
       }
 
+      // ── Server-side 3/6/2 validation ─────────────────────────────
+      // Runs BEFORE the transaction — DB triggers cannot enforce minimums
+      // on INSERT (we don't know if more staff will be added later), so
+      // the server is the right place to check the full submitted list.
+      const staffRows = await query(
+        `SELECT amka, staff_type, \`rank\` AS rank_
+         FROM Staff s
+         LEFT JOIN Doctors d ON d.staff_amka = s.amka
+         WHERE s.amka IN (${staff_amkas.map((_, i) => `:a${i}`).join(",")})`,
+        Object.fromEntries(staff_amkas.map((a, i) => [`a${i}`, a]))
+      );
+      const doctors = staffRows.filter((s) => s.staff_type === "Doctor");
+      const nurses  = staffRows.filter((s) => s.staff_type === "Nurse");
+      const admins  = staffRows.filter((s) => s.staff_type === "Admin");
+      const SENIOR  = ["Επιμελητής Α'", "Διευθυντής"];
+      const hasSenior   = doctors.some((d) => SENIOR.includes(d.rank_));
+      const hasResident = doctors.some((d) => d.rank_ === "Ειδικευόμενος");
+
+      const violations = [];
+      if (doctors.length < 3) violations.push(`Απαιτούνται τουλάχιστον 3 ιατροί (στάλθηκαν ${doctors.length})`);
+      if (nurses.length  < 6) violations.push(`Απαιτούνται τουλάχιστον 6 νοσηλευτές (στάλθηκαν ${nurses.length})`);
+      if (admins.length  < 2) violations.push(`Απαιτούνται τουλάχιστον 2 διοικητικοί (στάλθηκαν ${admins.length})`);
+      if (hasResident && !hasSenior) violations.push("Ειδικευόμενος ιατρός απαιτεί Επιμελητή Α΄ ή Διευθυντή στη βάρδια");
+      if (violations.length > 0) {
+        return res.status(400).json({ error: violations.join(" | ") });
+      }
+
       const result = await withTransaction(async (conn) => {
         // 1. Find or create the Shift row (unique by date+type)
         const [existing] = await conn.execute(
@@ -862,10 +840,9 @@ module.exports = function registerAdminRoutes(app) {
           shiftId = ins.insertId;
         }
 
-        // 2. Insert each assignment — triggers enforce all rules.
-        //    We use INSERT (not IGNORE) so violations surface as errors.
+        // 2. Insert each assignment — DB triggers enforce all other rules
+        //    (monthly limits, 8h rest, consecutive nights, supervision).
         const inserted = [];
-        const failed = [];
         for (const amka of staff_amkas) {
           try {
             await conn.execute(
@@ -875,12 +852,10 @@ module.exports = function registerAdminRoutes(app) {
             );
             inserted.push(amka);
           } catch (err) {
-            // Trigger SIGNAL surfaces as sqlMessage
-            failed.push({ amka, error: err.sqlMessage || err.message });
             throw err; // rollback the entire shift
           }
         }
-        return { shiftId, inserted, failed };
+        return { shiftId, inserted };
       });
 
       res.status(201).json({ ok: true, shift_id: result.shiftId, assigned: result.inserted.length });

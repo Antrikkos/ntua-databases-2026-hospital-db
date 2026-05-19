@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Υγειόπολη — Database Showcase (Bonus UI)</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Γενικό Νοσοκομείο «Υγειόπολης»</h1>
+      <p class="subtitle">Database Showcase Frontend — db2026 (bonus)</p>
+      <div id="status-badge" class="status">Checking DB...</div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-view="dashboard">Dashboard</button>
+      <button class="tab" data-view="triage">ΤΕΠ / Triage</button>
+      <button class="tab" data-view="patients">Patients</button>
+      <button class="tab" data-view="doctors">Doctors</button>
+      <button class="tab" data-view="hospitalizations">Hospitalizations</button>
+      <button class="tab" data-view="prescriptions">Prescriptions</button>
+      <button class="tab" data-view="reviews">Αξιολογήσεις</button>
+      <button class="tab" data-view="queries">Queries Q1-Q15</button>
+      <button class="tab" data-view="admin">⚙ Admin</button>
+    </nav>
+
+    <main class="content">
+
+      <!-- ───────────────── DASHBOARD ───────────────── -->
+      <section id="view-dashboard" class="view active">
+        <h2>Σύνοψη</h2>
+        <div id="summary-cards" class="cards"></div>
+
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Revenue ανά Τμήμα / Έτος</h3>
+            <div id="revenue-table"></div>
+          </article>
+          <article class="panel">
+            <h3>Triage Overview</h3>
+            <div id="triage-table"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ───────────────── TRIAGE / ΤΕΠ ───────────────── -->
+      <section id="view-triage" class="view">
+        <h2>Τμήμα Επειγόντων Περιστατικών — Triage</h2>
+        <p class="meta">
+          Οι ασθενείς εξυπηρετούνται κατά αύξουσα σειρά επιπέδου επείγοντος (1=άμεσο → 5=μη επείγον)
+          και — εντός του ίδιου επιπέδου — με σειρά άφιξης (FIFO).
+        </p>
+
+        <div class="toolbar">
+          <strong id="queue-count" class="muted">—</strong>
+          <button id="queue-refresh-btn" class="linkish">Refresh</button>
+          <label class="inline-check">
+            <input type="checkbox" id="queue-autorefresh" checked /> Auto-refresh 10s
+          </label>
+        </div>
+
+        <article class="panel">
+          <h3>Λίστα Αναμονής</h3>
+          <div id="triage-queue"></div>
+        </article>
+
+        <div class="grid-two" style="margin-top:16px;">
+          <article class="panel">
+            <h3>Νέα Καταγραφή Triage</h3>
+            <p class="meta">
+              Καταγραφή νέου ασθενούς από τον νοσηλευτή διαλογής. Ο χρόνος άφιξης τίθεται αυτόματα,
+              αν δεν δοθεί.
+            </p>
+            <form id="new-triage-form" class="form-grid">
+              <label>ΑΜΚΑ Ασθενή <input name="patient_amka" required placeholder="11ψήφιο" /></label>
+              <label>Νοσηλευτής Διαλογής
+                <select name="nurse_amka" id="triage-nurse-select" required></select>
+              </label>
+              <label>Επίπεδο Επείγοντος
+                <select name="urgency_level" required>
+                  <option value="1">1 — Άμεσο</option>
+                  <option value="2">2 — Επείγον</option>
+                  <option value="3" selected>3 — Επιτακτικό</option>
+                  <option value="4">4 — Λιγότερο επείγον</option>
+                  <option value="5">5 — Μη επείγον</option>
+                </select>
+              </label>
+              <label>Ώρα Άφιξης (προαιρετικό) <input name="arrival_time" type="datetime-local" /></label>
+              <label class="full">Συμπτώματα <textarea name="symptoms" rows="3" required></textarea></label>
+              <button type="submit">Καταχώρηση στη Λίστα</button>
+            </form>
+            <div id="new-triage-message" class="meta"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Πρόσφατο Ιστορικό (resolved)</h3>
+            <div id="triage-history"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- Modal: admit patient from triage queue → hospitalization -->
+      <div id="admit-modal" class="modal-overlay" hidden>
+        <div class="modal-card">
+          <header class="modal-header">
+            <h3>Εισαγωγή Ασθενούς για Νοσηλεία</h3>
+            <button class="modal-close" id="admit-modal-close" aria-label="Close">x</button>
+          </header>
+          <div class="modal-body">
+            <div id="admit-patient-info" class="admit-info"></div>
+            <form id="admit-form" class="form-grid">
+              <input type="hidden" name="triage_id" />
+              <input type="hidden" name="patient_amka" />
+              <label>Τμήμα Νοσηλείας
+                <select name="department_id" id="admit-dept-select" required></select>
+              </label>
+              <label>Διαθέσιμη Κλίνη
+                <select name="bed_id" id="admit-bed-select" required>
+                  <option value="">— επίλεξε τμήμα —</option>
+                </select>
+              </label>
+              <label>Ημ/νία Εισαγωγής
+                <input name="admission_date" type="datetime-local" required />
+              </label>
+              <label class="full">
+                ICD-10 Εισαγωγής (αναζήτηση)
+                <input id="admit-icd10-search" type="text" placeholder="κωδικός ή λέξη..." autocomplete="off" />
+                <select name="admission_diagnosis_icd10" id="admit-icd10-select" required>
+                  <option value="">—</option>
+                </select>
+              </label>
+              <label class="full">
+                Κωδικός ΚΕΝ (αναζήτηση)
+                <input id="admit-ken-search" type="text" placeholder="κωδικός ή λέξη..." autocomplete="off" />
+                <select name="ken_code" id="admit-ken-select" required>
+                  <option value="">—</option>
+                </select>
+              </label>
+              <button type="submit">Εισαγωγή σε Νοσηλεία</button>
+            </form>
+            <div id="admit-message" class="meta"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ───────────────── PATIENTS ───────────────── -->
+      <section id="view-patients" class="view">
+        <h2>Patients</h2>
+
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Search</h3>
+            <div class="toolbar">
+              <input id="patient-search" type="text" placeholder="ΑΜΚΑ ή όνομα..." />
+              <button id="patient-search-btn">Search</button>
+            </div>
+            <div id="patient-list"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Νέος Ασθενής</h3>
+            <form id="new-patient-form" class="form-grid">
+              <label>ΑΜΚΑ <input name="amka" required maxlength="11" /></label>
+              <label>Όνομα <input name="first_name" required /></label>
+              <label>Επώνυμο <input name="last_name" required /></label>
+              <label>Πατρώνυμο <input name="fathers_name" /></label>
+              <label>Ηλικία <input name="age" type="number" required min="0" max="120" /></label>
+              <label>Φύλο
+                <select name="gender" required>
+                  <option value="">--</option>
+                  <option>Αρσενικό</option>
+                  <option>Θηλυκό</option>
+                </select>
+              </label>
+              <label>Βάρος (kg) <input name="weight" type="number" step="0.1" /></label>
+              <label>Ύψος (m) <input name="height" type="number" step="0.01" /></label>
+              <label>Τηλέφωνο <input name="phone" /></label>
+              <label>Email <input name="email" type="email" /></label>
+              <label>Επάγγελμα <input name="profession" /></label>
+              <label>Υπηκοότητα <input name="citizenship" /></label>
+              <label>Ασφαλιστικός Φορέας
+                <select name="insurance_provider" required>
+                  <option value="">--</option>
+                  <option>ΕΦΚΑ</option>
+                  <option>Ιδιωτική Ασφάλεια</option>
+                  <option>Ανασφάλιστος</option>
+                </select>
+              </label>
+              <label class="full">Διεύθυνση <input name="address" /></label>
+              <label class="full">Στοιχεία Επικοινωνίας Ανάγκης <input name="emergency_contact" /></label>
+              <button type="submit">Καταχώρηση</button>
+            </form>
+            <div id="new-patient-message" class="meta"></div>
+          </article>
+        </div>
+
+        <article class="panel" id="patient-detail-panel" style="display:none;">
+          <h3>Στοιχεία Ασθενή</h3>
+          <div id="patient-detail"></div>
+          <h4>Νοσηλείες</h4>
+          <div id="patient-hospitalizations"></div>
+          <h4>Καταγεγραμμένες Αλλεργίες</h4>
+          <div id="patient-allergies"></div>
+        </article>
+      </section>
+
+      <!-- ───────────────── DOCTORS ───────────────── -->
+      <section id="view-doctors" class="view">
+        <h2>Doctors</h2>
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Αναζήτηση</h3>
+            <div class="toolbar">
+              <input id="doctor-search" type="text" placeholder="ΑΜΚΑ ή επώνυμο..." />
+              <select id="doctor-specialty">
+                <option value="">— Όλες οι ειδικότητες —</option>
+              </select>
+              <button id="doctor-search-btn">Search</button>
+            </div>
+            <div id="doctor-list"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Νέος Ιατρός</h3>
+            <p class="meta">Δημιουργεί Staff + Doctors + Doctor_has_Department ατομικά.
+              Triggers επιβάλλουν: υποχρεωτικός επόπτης για Ειδικευόμενο, κυκλική εποπτεία.</p>
+            <form id="new-doctor-form" class="form-grid">
+              <label>ΑΜΚΑ <input name="amka" required maxlength="11" placeholder="11 ψηφία" /></label>
+              <label>Όνομα <input name="first_name" required /></label>
+              <label>Επώνυμο <input name="last_name" required /></label>
+              <label>Ηλικία <input name="age" type="number" required min="22" max="80" /></label>
+              <label>Ημ. Πρόσληψης <input name="hire_date" type="date" required /></label>
+              <label>Email <input name="email" type="email" /></label>
+              <label>Τηλέφωνο <input name="phone" /></label>
+              <label>Αρ. Άδειας ΙΣ <input name="license_number" required placeholder="π.χ. ΑΘ-12345" /></label>
+              <label>Ειδικότητα
+                <select name="specialty" id="new-doctor-specialty" required>
+                  <option value="">— επίλεξε —</option>
+                </select>
+              </label>
+              <label>Βαθμίδα
+                <select name="rank" id="new-doctor-rank" required>
+                  <option value="">— επίλεξε —</option>
+                  <option value="Ειδικευόμενος">Ειδικευόμενος</option>
+                  <option value="Επιμελητής Β'">Επιμελητής Β΄</option>
+                  <option value="Επιμελητής Α'">Επιμελητής Α΄</option>
+                  <option value="Διευθυντής">Διευθυντής</option>
+                </select>
+              </label>
+              <label id="new-doctor-supervisor-label">Επόπτης
+                <select name="supervisor_amka" id="new-doctor-supervisor">
+                  <option value="">— κανείς —</option>
+                </select>
+              </label>
+              <label class="full">Τμήμα(τα)
+                <div id="new-doctor-depts" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;padding:8px;border:1px solid #bcccde;border-radius:8px;min-height:40px;max-height:160px;overflow-y:auto;">
+                  <span class="muted">Φόρτωση...</span>
+                </div>
+              </label>
+              <div id="new-doctor-supervisor-note" class="meta full" style="display:none;padding:6px 8px;border-radius:6px;"></div>
+              <button type="submit">Καταχώρηση Ιατρού</button>
+            </form>
+            <div id="new-doctor-message" class="meta"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ───────────────── HOSPITALIZATIONS ───────────────── -->
+      <section id="view-hospitalizations" class="view">
+        <h2>Hospitalizations</h2>
+
+        <div class="toolbar">
+          <button id="hosp-refresh-btn">Refresh</button>
+          <span id="hosp-counts" class="muted">—</span>
+        </div>
+
+        <article class="panel">
+          <h3>Ενεργές Νοσηλείες <small id="hosp-active-count" class="muted"></small></h3>
+          <div id="hosp-active-list"></div>
+        </article>
+
+        <article class="panel" style="margin-top:16px;">
+          <h3>Ιστορικό Νοσηλειών (ολοκληρωμένες) <small id="hosp-completed-count" class="muted"></small></h3>
+          <div id="hosp-completed-list"></div>
+        </article>
+
+        <article class="panel" style="margin-top:16px;">
+          <h3>Νέα Νοσηλεία (Admission)</h3>
+          <p class="meta">
+            Συνήθως η εισαγωγή γίνεται από τη λίστα triage (καρτέλα ΤΕΠ). Εδώ μπορείτε
+            να καταχωρήσετε νοσηλεία απευθείας, χωρίς triage record.
+          </p>
+          <form id="new-hosp-form" class="form-grid">
+            <label>ΑΜΚΑ Ασθενή <input name="patient_amka" required /></label>
+            <label>Τμήμα
+              <select name="department_id" id="hosp-dept-select" required></select>
+            </label>
+            <label>Διαθέσιμη Κλίνη
+              <select name="bed_id" id="hosp-bed-select" required>
+                <option value="">— Επίλεξε τμήμα πρώτα —</option>
+              </select>
+            </label>
+            <label>Ημ/νία Εισαγωγής <input name="admission_date" type="datetime-local" required /></label>
+            <label>ICD-10 Εισαγωγής <input name="admission_diagnosis_icd10" required placeholder="π.χ. I21" /></label>
+            <label>Κωδικός ΚΕΝ <input name="ken_code" required placeholder="π.χ. KEN001" /></label>
+            <button type="submit">Εισαγωγή</button>
+          </form>
+          <div id="new-hosp-message" class="meta"></div>
+        </article>
+      </section>
+
+      <!-- Modal: discharge an active hospitalization -->
+      <div id="discharge-modal" class="modal-overlay" hidden>
+        <div class="modal-card">
+          <header class="modal-header">
+            <h3>Έξοδος Ασθενούς (Discharge)</h3>
+            <button class="modal-close" id="discharge-modal-close" aria-label="Close">x</button>
+          </header>
+          <div class="modal-body">
+            <div id="discharge-patient-info" class="admit-info"></div>
+            <form id="discharge-form" class="form-grid">
+              <input type="hidden" name="hospitalization_id" />
+              <label>Ημ/νία Εξόδου
+                <input name="discharge_date" type="datetime-local" required />
+              </label>
+              <label class="full">
+                ICD-10 Διάγνωσης Εξόδου (αναζήτηση)
+                <input id="discharge-icd10-search" type="text" placeholder="κωδικός ή λέξη..." autocomplete="off" />
+                <select name="discharge_diagnosis_icd10" id="discharge-icd10-select" required>
+                  <option value="">—</option>
+                </select>
+              </label>
+              <p class="full meta">
+                Το <strong>συνολικό κόστος</strong> υπολογίζεται αυτόματα από τον trigger
+                <code>calculate_hospitalization_cost</code> βάσει του ΚΕΝ και τυχόν υπέρβασης ΜΔΝ.
+              </p>
+              <button type="submit">Καταχώρηση Εξόδου</button>
+            </form>
+            <div id="discharge-message" class="meta"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ───────────────── PRESCRIPTIONS ───────────────── -->
+      <section id="view-prescriptions" class="view">
+        <h2>Prescriptions</h2>
+
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Πρόσφατες Συνταγές</h3>
+            <div id="prescriptions-list"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Νέα Συνταγή</h3>
+            <p class="meta">
+              Σημείωση: Ο trigger <code>check_allergy_before_prescription</code> θα μπλοκάρει την εισαγωγή
+              αν κάποια δραστική ουσία του φαρμάκου βρίσκεται στις αλλεργίες του ασθενή.
+            </p>
+            <form id="new-prescription-form" class="form-grid">
+              <label>ΑΜΚΑ Ιατρού <input name="doctor_amka" required /></label>
+              <label>ΑΜΚΑ Ασθενή <input name="patient_amka" required /></label>
+              <label class="full">
+                Φάρμακο (search)
+                <input id="medicine-search" type="text" placeholder="πληκτρολόγησε brand name..." autocomplete="off" />
+                <select name="medicine_code" id="medicine-select" required>
+                  <option value="">—</option>
+                </select>
+              </label>
+              <label>Ημ/νία Έναρξης <input name="start_date" type="date" required /></label>
+              <label>Ημ/νία Λήξης <input name="end_date" type="date" /></label>
+              <label>Δοσολογία <input name="dosage" placeholder="π.χ. 500mg" /></label>
+              <label>Συχνότητα <input name="frequency" placeholder="π.χ. Κάθε 8 ώρες" /></label>
+              <button type="submit">Συνταγογράφηση</button>
+            </form>
+            <div id="new-prescription-message" class="meta"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ───────────────── REVIEWS / ΑΞΙΟΛΟΓΗΣΕΙΣ ───────────────── -->
+      <section id="view-reviews" class="view">
+        <h2>Αξιολογήσεις Νοσηλείας &amp; Ιατρών</h2>
+        <p class="meta">
+          Σύμφωνα με την εκφώνηση, αξιολόγηση επιτρέπεται <strong>μόνο</strong> για ασθενείς με
+          <strong>ολοκληρωμένη</strong> νοσηλεία. Η κλίμακα είναι Likert <strong>1–5</strong>.
+          Ο ασθενής μπορεί να αξιολογήσει κάθε ιατρό που του <strong>συνταγογράφησε</strong>
+          κατά τη διάρκεια της νοσηλείας του.
+        </p>
+
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Κορυφαίοι Ιατροί (Ποιότητα ιατρικής φροντίδας)</h3>
+            <div class="toolbar">
+              <button id="reviews-refresh-btn" class="linkish">Refresh</button>
+              <span id="reviews-doctors-count" class="muted">—</span>
+            </div>
+            <div id="reviews-doctors-list"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Αξιολογήσεις Νοσηλειών</h3>
+            <div id="reviews-hosp-list"></div>
+          </article>
+        </div>
+
+        <article class="panel" style="margin-top:16px;" id="reviews-doctor-detail-panel" hidden>
+          <h3>Αξιολογήσεις Ιατρού <small id="reviews-doctor-name" class="muted"></small></h3>
+          <div id="reviews-doctor-summary"></div>
+          <h4>Λεπτομέρειες</h4>
+          <div id="reviews-doctor-detail"></div>
+        </article>
+
+        <article class="panel" style="margin-top:16px;">
+          <h3>Καταχώρηση Νέας Αξιολόγησης</h3>
+          <p class="meta">
+            Επιλέξτε <strong>ολοκληρωμένη</strong> νοσηλεία (μόνο όσες δεν έχουν αξιολογηθεί
+            εμφανίζονται). Στη συνέχεια συμπληρώστε τα κριτήρια και — προαιρετικά — βαθμολογήστε
+            κάθε ιατρό που σας συνταγογράφησε κατά τη νοσηλεία.
+          </p>
+          <form id="new-review-form" class="form-grid">
+            <label class="full">
+              Νοσηλεία
+              <select name="hospitalization_id" id="review-hosp-select" required>
+                <option value="">— επιλέξτε νοσηλεία —</option>
+              </select>
+            </label>
+
+            <fieldset class="full review-fieldset">
+              <legend>Αξιολόγηση Νοσηλείας</legend>
+              <div class="review-grid">
+                <label>Ποιότητα νοσηλευτικής φροντίδας
+                  <span class="rating-input" data-field="nursing_care"></span>
+                </label>
+                <label>Καθαριότητα
+                  <span class="rating-input" data-field="cleanliness"></span>
+                </label>
+                <label>Φαγητό
+                  <span class="rating-input" data-field="food"></span>
+                </label>
+                <label>Συνολική εμπειρία
+                  <span class="rating-input" data-field="overall_experience"></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="full review-fieldset">
+              <legend>Αξιολόγηση Ιατρών που συνταγογράφησαν</legend>
+              <div id="review-doctor-ratings">
+                <div class="empty">— επιλέξτε πρώτα νοσηλεία —</div>
+              </div>
+            </fieldset>
+
+            <button type="submit">Καταχώρηση Αξιολόγησης</button>
+          </form>
+          <div id="new-review-message" class="meta"></div>
+        </article>
+      </section>
+
+      <!-- ───────────────── QUERIES Q1-Q15 ───────────────── -->
+      <section id="view-queries" class="view">
+        <h2>Queries Q1 – Q15</h2>
+
+        <div class="toolbar stack">
+          <label>
+            Query
+            <select id="query-select"></select>
+          </label>
+          <div id="query-notes" class="meta"></div>
+          <div id="query-params" class="param-grid"></div>
+          <button id="run-query-btn">Run Query</button>
+        </div>
+
+        <div class="grid-two">
+          <article class="panel">
+            <h3>Raw SQL <small id="query-source" class="muted"></small></h3>
+            <pre class="sql-view"><code id="query-sql"></code></pre>
+          </article>
+          <article class="panel">
+            <h3>Result</h3>
+            <div id="query-result-meta" class="meta"></div>
+            <div id="query-results"></div>
+          </article>
+        </div>
+      </section>
+
+
+      <!-- ───────────────── ADMIN ───────────────── -->
+      <section id="view-admin" class="view">
+        <h2>⚙ Admin — Διαχείριση &amp; Διαγραφές</h2>
+
+        <div class="grid-two">
+          <!-- DELETE panel -->
+          <article class="panel">
+            <h3>🗑 Cascade Delete</h3>
+            <p class="meta">Επίλεξε τύπο → αναζήτησε → δες τι θα διαγραφεί → επιβεβαίωσε.</p>
+            <div class="toolbar">
+              <select id="admin-entity-type">
+                <option value="">— τύπος —</option>
+                <option value="patient">Ασθενής</option>
+                <option value="doctor">Ιατρός</option>
+                <option value="nurse">Νοσηλευτής</option>
+                <option value="hospitalization">Νοσηλεία</option>
+                <option value="shift">Βάρδια</option>
+                <option value="eval_hospitalization">Αξιολόγηση Νοσηλείας</option>
+                <option value="eval_doctor">Αξιολόγηση Ιατρού</option>
+              </select>
+              <input id="admin-search-input" type="text" placeholder="Αναζήτηση..." disabled style="flex:1" />
+            </div>
+            <div id="admin-results-list" class="results-scroll" style="display:none;max-height:220px;"></div>
+            <div id="admin-impact-box" style="display:none;margin-top:12px;">
+              <div style="background:#fef3c7;border:1px solid #f0c674;border-radius:8px;padding:12px;">
+                <strong style="color:#92400e;">⚠ Θα διαγραφούν επίσης:</strong>
+                <ul id="admin-impact-list" style="margin:8px 0 0;padding-left:18px;font-size:0.9rem;"></ul>
+                <div id="admin-eval-doctor-list" style="display:none;margin-top:8px;"></div>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:8px;">
+                <button id="admin-confirm-delete">Επιβεβαίωση Διαγραφής</button>
+                <button id="admin-cancel-delete" style="background:#6b7280;border-color:#6b7280;">Άκυρο</button>
+              </div>
+            </div>
+            <div id="admin-delete-msg" class="meta" style="margin-top:8px;"></div>
+          </article>
+
+          <!-- SHIFTS panel -->
+          <article class="panel">
+            <h3>📅 Νέα Βάρδια</h3>
+            <p class="meta">Επίλεξε ημερομηνία, τύπο και τμήμα. Χρήση Auto-fill για αυτόματη πρόταση που τηρεί τους triggers (3 ιατροί / 6 νοσηλευτές / 2 διοικ.).</p>
+            <div class="form-grid" id="shift-meta-form">
+              <label>Ημερομηνία <input id="shift-date" type="date" required /></label>
+              <label>Τύπος
+                <select id="shift-type">
+                  <option value="Morning">Πρωινή 07:00-15:00</option>
+                  <option value="Afternoon">Απογευματινή 15:00-23:00</option>
+                  <option value="Night">Νυχτερινή 23:00-07:00</option>
+                </select>
+              </label>
+              <label>Τμήμα
+                <select id="shift-dept"></select>
+              </label>
+              <div style="grid-column:1/-1;display:flex;gap:8px;">
+                <button id="shift-autofill-btn">🤖 Auto-fill</button>
+                <button id="shift-manual-btn" style="background:#6b7280;border-color:#6b7280;">Χειροκίνητη επιλογή</button>
+              </div>
+            </div>
+            <div id="shift-staff-box" style="display:none;margin-top:12px;">
+              <div id="shift-counts" style="display:flex;gap:8px;margin-bottom:8px;font-size:0.85rem;"></div>
+              <div id="shift-autofill-warning" class="meta" style="margin-bottom:6px;"></div>
+              <div id="shift-staff-list" class="results-scroll" style="max-height:220px;"></div>
+              <div style="margin-top:10px;display:flex;gap:8px;">
+                <button id="shift-submit-btn">✓ Δημιουργία Βάρδιας</button>
+                <button id="shift-cancel-btn" style="background:#6b7280;border-color:#6b7280;">Άκυρο</button>
+              </div>
+              <div id="shift-submit-msg" class="meta" style="margin-top:6px;"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
