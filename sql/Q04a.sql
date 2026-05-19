@@ -1,6 +1,5 @@
 -- ============================================================
--- Q4.sql  (ΔΕΝ ΑΛΛΑΞΕ — ήταν σωστό)
--- ΣΗΜΕΙΩΣΗ: Αντικατέστησε το ΑΜΚΑ με πραγματικό από τη ΒΔ σου
+-- Q4.sql  
 -- ============================================================
 
 -- Εκδοχή Α: Κανονική εκτέλεση
@@ -14,7 +13,7 @@ FROM Doctors d
 JOIN Staff s ON d.staff_amka = s.amka
 JOIN Evaluation_Doctor ed ON d.staff_amka = ed.doctor_amka
 JOIN Evaluation_Hospitalization eh ON ed.hospitalization_id = eh.hospitalization_id
-WHERE d.staff_amka = '00868759358'
+WHERE d.staff_amka = 'ΑΜΚΑ_ΙΑΤΡΟΥ'
 GROUP BY d.staff_amka, s.last_name;
 
 

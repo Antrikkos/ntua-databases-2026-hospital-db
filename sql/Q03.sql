@@ -17,4 +17,5 @@ GROUP BY
     p.first_name,
     p.last_name,
     d.name
-HAVING COUNT(h.id) > 3;
+HAVING Hospitalization_Count > 3
+order by Hospitalization_Count desc;
