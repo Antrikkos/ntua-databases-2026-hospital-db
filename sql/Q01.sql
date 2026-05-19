@@ -19,4 +19,5 @@ GROUP BY
     d.name,
     YEAR(h.admission_date),
     h.ken_code,
-    p.insurance_provider;
+    p.insurance_provider
+ORDER BY Admission_YEAR ASC, Department ASC, KEN_code ASC;

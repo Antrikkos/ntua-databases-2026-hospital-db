@@ -23,4 +23,5 @@ WHERE d.specialty = 'Καρδιολογία'
 GROUP BY 
     d.staff_amka,
     s.first_name,
-    s.last_name;
+    s.last_name
+Order by Lead_Surgeries_Performed DESC;
