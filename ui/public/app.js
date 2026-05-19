@@ -196,6 +196,7 @@ async function loadDoctors() {
 }
 
 async function initDoctors() {
+  // ── Search ─────────────────────────────────────────────────
   const specs = await api("/api/specialties");
   const sel = document.getElementById("doctor-specialty");
   sel.innerHTML =
@@ -204,6 +205,100 @@ async function initDoctors() {
   document.getElementById("doctor-search-btn").addEventListener("click", loadDoctors);
   document.getElementById("doctor-specialty").addEventListener("change", loadDoctors);
   await loadDoctors();
+
+  // ── New doctor form ────────────────────────────────────────
+  // Populate specialty dropdown
+  const newSpecSel = document.getElementById("new-doctor-specialty");
+  newSpecSel.innerHTML =
+    '<option value="">— επίλεξε —</option>' +
+    specs.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+
+  // Populate departments
+  const depts = await api("/api/departments");
+  document.getElementById("new-doctor-depts").innerHTML = depts
+    .map((d) => `<label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;cursor:pointer;padding:2px 6px;border:1px solid #bcccde;border-radius:6px;white-space:nowrap;">
+      <input type="checkbox" class="new-doctor-dept-cb" value="${d.id}"> ${escapeHtml(d.name)}
+    </label>`)
+    .join("");
+
+  // Populate supervisors
+  async function loadSupervisors() {
+    try {
+      const sups = await api("/api/admin/doctors/supervisors");
+      const supSel = document.getElementById("new-doctor-supervisor");
+      supSel.innerHTML =
+        '<option value="">— κανείς —</option>' +
+        sups.map((s) => `<option value="${escapeHtml(s.staff_amka)}">${escapeHtml(s.last_name + " " + s.first_name)} (${escapeHtml(s.rank_)} · ${escapeHtml(s.specialty)})</option>`).join("");
+    } catch (e) { /* non-critical */ }
+  }
+  await loadSupervisors();
+
+  // Rank change → supervisor rules
+  document.getElementById("new-doctor-rank").addEventListener("change", function () {
+    const rank = this.value;
+    const note = document.getElementById("new-doctor-supervisor-note");
+    const supSel = document.getElementById("new-doctor-supervisor");
+    note.style.display = "block";
+    if (rank === "Ειδικευόμενος") {
+      note.textContent = "⚠ Υποχρεωτικός επόπτης για Ειδικευόμενο — ελέγχεται από DB trigger.";
+      note.style.background = "#fef3c7"; note.style.color = "#92400e";
+      supSel.required = true;
+      supSel.disabled = false;
+    } else if (rank === "Διευθυντής") {
+      note.textContent = "ℹ Ο Διευθυντής δεν μπορεί να έχει επόπτη.";
+      note.style.background = "#eff6ff"; note.style.color = "#1d4ed8";
+      supSel.value = ""; supSel.required = false; supSel.disabled = true;
+    } else {
+      note.textContent = "Προαιρετικός επόπτης για Επιμελητές.";
+      note.style.background = "#f1f5f9"; note.style.color = "#475569";
+      supSel.required = false; supSel.disabled = false;
+    }
+  });
+
+  // Form submit
+  const form = document.getElementById("new-doctor-form");
+  const msg  = document.getElementById("new-doctor-message");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    msg.textContent = ""; msg.className = "meta";
+
+    const fd = new FormData(form);
+    const deptIds = [...document.querySelectorAll(".new-doctor-dept-cb:checked")].map((cb) => Number(cb.value));
+    if (deptIds.length === 0) {
+      msg.textContent = "Επίλεξε τουλάχιστον ένα τμήμα.";
+      msg.classList.add("error-msg"); return;
+    }
+
+    const payload = {
+      amka:            fd.get("amka"),
+      first_name:      fd.get("first_name"),
+      last_name:       fd.get("last_name"),
+      age:             Number(fd.get("age")),
+      hire_date:       fd.get("hire_date"),
+      email:           fd.get("email") || null,
+      phone:           fd.get("phone") || null,
+      license_number:  fd.get("license_number"),
+      specialty:       fd.get("specialty"),
+      rank:            fd.get("rank"),
+      supervisor_amka: fd.get("supervisor_amka") || null,
+      department_ids:  deptIds,
+    };
+
+    try {
+      const r = await api("/api/admin/doctors", { method: "POST", body: JSON.stringify(payload) });
+      msg.textContent = `OK — ο ιατρός ${r.amka} καταχωρήθηκε (${r.departments} τμήμα/τα).`;
+      msg.classList.add("success-msg");
+      form.reset();
+      document.getElementById("new-doctor-supervisor-note").style.display = "none";
+      document.getElementById("new-doctor-supervisor").disabled = false;
+      document.querySelectorAll(".new-doctor-dept-cb").forEach((cb) => (cb.checked = false));
+      await loadDoctors();
+      await loadSupervisors(); // refresh supervisors list
+    } catch (err) {
+      msg.textContent = `Σφάλμα: ${err.message}`;
+      msg.classList.add("error-msg");
+    }
+  });
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -313,14 +408,20 @@ function renderCompletedHospitalizations(rows) {
 
 async function loadHospitalizations() {
   try {
-    const [active, completed] = await Promise.all([
-      api("/api/hospitalizations?status=active"),
-      api("/api/hospitalizations?status=completed")
+    const [activeResp, completedResp] = await Promise.all([
+      api("/api/hospitalizations?status=active&limit=500"),
+      api("/api/hospitalizations?status=completed&limit=500")
     ]);
+    // New response: { rows, total, active, completed }
+    // Backwards compatible: if array returned directly, use as-is
+    const active    = Array.isArray(activeResp)    ? activeResp    : activeResp.rows    || [];
+    const completed = Array.isArray(completedResp) ? completedResp : completedResp.rows || [];
+    const totalActive    = Array.isArray(activeResp)    ? active.length    : (activeResp.active    ?? active.length);
+    const totalCompleted = Array.isArray(completedResp) ? completed.length : (completedResp.completed ?? completed.length);
     renderActiveHospitalizations(active);
     renderCompletedHospitalizations(completed);
     document.getElementById("hosp-counts").textContent =
-      `${active.length} ενεργές · ${completed.length} ολοκληρωμένες`;
+      `${totalActive} ενεργές · ${totalCompleted} ολοκληρωμένες`;
   } catch (err) {
     document.getElementById("hosp-active-list").innerHTML =
       `<div class="empty error-msg">${escapeHtml(err.message)}</div>`;
@@ -708,6 +809,25 @@ async function refreshAdmitBeds() {
   }
 }
 
+async function refreshAdmitDoctors() {
+  const deptId = document.getElementById("admit-dept-select").value;
+  const docSel = document.getElementById("admit-doctor-select");
+  if (!docSel) return;
+  if (!deptId) {
+    docSel.innerHTML = '<option value="">— επίλεξε τμήμα πρώτα —</option>';
+    return;
+  }
+  try {
+    const docs = await api(`/api/doctors/by-department?department_id=${deptId}`);
+    const RANK_ICON = { "Διευθυντής":"👑", "Επιμελητής Α'":"🔵", "Επιμελητής Β'":"🟢", "Ειδικευόμενος":"🟡" };
+    docSel.innerHTML = docs.length
+      ? docs.map((d) => `<option value="${escapeHtml(d.amka)}">${RANK_ICON[d.rank_]||"👨‍⚕️"} ${escapeHtml(d.last_name+" "+d.first_name)} — ${escapeHtml(d.specialty)} (${escapeHtml(d.rank_)})</option>`).join("")
+      : '<option value="">— κανείς διαθέσιμος —</option>';
+  } catch (err) {
+    docSel.innerHTML = `<option value="">σφάλμα: ${escapeHtml(err.message)}</option>`;
+  }
+}
+
 function attachSearchSelect(searchId, selectId, fetchUrl, mapItem) {
   const input = document.getElementById(searchId);
   const select = document.getElementById(selectId);
@@ -736,7 +856,10 @@ function initAdmitModal() {
     if (e.target === overlay) overlay.hidden = true;
   });
 
-  document.getElementById("admit-dept-select").addEventListener("change", refreshAdmitBeds);
+  document.getElementById("admit-dept-select").addEventListener("change", () => {
+    refreshAdmitBeds();
+    refreshAdmitDoctors();
+  });
 
   initAdmitIcd10 = attachSearchSelect(
     "admit-icd10-search",
@@ -802,6 +925,7 @@ async function openAdmitModal({ triage_id, patient_amka, patient_name }) {
   const deptSel = document.getElementById("admit-dept-select");
   deptSel.innerHTML = admitDeptsCache.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join("");
   await refreshAdmitBeds();
+  await refreshAdmitDoctors();
   if (initAdmitIcd10) await initAdmitIcd10();
   if (initAdmitKen) await initAdmitKen();
 
@@ -1117,6 +1241,282 @@ async function initReviews() {
 }
 
 // ──────────────────────────────────────────────────────────────
+// CALENDAR — Πρόγραμμα Βαρδιών
+// ──────────────────────────────────────────────────────────────
+const SHIFT_TYPE_LABELS = {
+  Morning:   { letter: "Π", greek: "Πρωινή",    hours: "07:00-15:00", cls: "M" },
+  Afternoon: { letter: "Α", greek: "Απογευματινή", hours: "15:00-23:00", cls: "A" },
+  Night:     { letter: "Ν", greek: "Νυχτερινή", hours: "23:00-07:00", cls: "N" }
+};
+const SHIFT_TYPE_ORDER = ["Morning", "Afternoon", "Night"];
+const MONTH_NAMES_EL = [
+  "Ιανουάριος", "Φεβρουάριος", "Μάρτιος", "Απρίλιος", "Μάιος", "Ιούνιος",
+  "Ιούλιος", "Αύγουστος", "Σεπτέμβριος", "Οκτώβριος", "Νοέμβριος", "Δεκέμβριος"
+];
+const DOW_LABELS_EL = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"];
+
+let _calCurrentMonth = null;   // { year, month } 0-indexed
+let _calShiftsByDate = {};      // 'YYYY-MM-DD' → [shift, ...]
+let _calSelectedDate = null;
+let _calDeptFilter = "";
+
+function ymdLocal(d) {
+  // Format date as YYYY-MM-DD in local time (avoids UTC off-by-one).
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+async function initCalendar() {
+  const now = new Date();
+  _calCurrentMonth = { year: now.getFullYear(), month: now.getMonth() };
+
+  // Populate department filter
+  try {
+    const depts = await api("/api/departments");
+    const sel = document.getElementById("cal-dept-filter");
+    sel.innerHTML = '<option value="">— Όλα —</option>' +
+      depts.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join("");
+    sel.addEventListener("change", (e) => {
+      _calDeptFilter = e.target.value;
+      // Re-render calendar grid (uses cached shifts) and any open day panel
+      renderCalendarGrid();
+      if (_calSelectedDate) renderCalendarDayPanel(_calSelectedDate);
+    });
+  } catch (err) {
+    console.warn("Could not load departments for calendar:", err.message);
+  }
+
+  document.getElementById("cal-prev-btn").addEventListener("click", () => shiftMonth(-1));
+  document.getElementById("cal-next-btn").addEventListener("click", () => shiftMonth(1));
+  document.getElementById("cal-today-btn").addEventListener("click", () => {
+    const t = new Date();
+    _calCurrentMonth = { year: t.getFullYear(), month: t.getMonth() };
+    loadCalendarMonth();
+  });
+  document.getElementById("cal-refresh-btn").addEventListener("click", loadCalendarMonth);
+
+  await loadCalendarMonth();
+}
+
+function shiftMonth(delta) {
+  let { year, month } = _calCurrentMonth;
+  month += delta;
+  if (month < 0)  { month = 11; year -= 1; }
+  if (month > 11) { month = 0;  year += 1; }
+  _calCurrentMonth = { year, month };
+  loadCalendarMonth();
+}
+
+async function loadCalendarMonth() {
+  const { year, month } = _calCurrentMonth;
+  document.getElementById("cal-month-label").textContent = `${MONTH_NAMES_EL[month]} ${year}`;
+
+  // Fetch shifts spanning the full visible grid (may include trailing/leading days of adjacent months).
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const firstDow = (firstDay.getDay() + 6) % 7; // Mon=0
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(firstDay.getDate() - firstDow);
+  const gridEnd = new Date(gridStart);
+  gridEnd.setDate(gridStart.getDate() + 41); // 6 rows × 7 cols
+
+  const from = ymdLocal(gridStart);
+  const to = ymdLocal(gridEnd);
+
+  const grid = document.getElementById("cal-grid");
+  grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Φόρτωση...</div>';
+
+  try {
+    const rows = await api(`/api/shifts?from=${from}&to=${to}`);
+    _calShiftsByDate = {};
+    for (const r of rows) {
+      const date = (r.shift_date || "").slice(0, 10);
+      if (!_calShiftsByDate[date]) _calShiftsByDate[date] = [];
+      _calShiftsByDate[date].push(r);
+    }
+    renderCalendarGrid();
+
+    // If currently selected date is in view, refresh its panel too
+    if (_calSelectedDate) renderCalendarDayPanel(_calSelectedDate);
+  } catch (err) {
+    grid.innerHTML = `<div class="empty error-msg" style="grid-column:1/-1;">Σφάλμα: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderCalendarGrid() {
+  const { year, month } = _calCurrentMonth;
+  const grid = document.getElementById("cal-grid");
+  const todayStr = ymdLocal(new Date());
+
+  const firstDay = new Date(year, month, 1);
+  const firstDow = (firstDay.getDay() + 6) % 7; // Mon=0
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(firstDay.getDate() - firstDow);
+
+  let html = DOW_LABELS_EL.map((d) => `<div class="cal-dow">${d}</div>`).join("");
+
+  for (let i = 0; i < 42; i++) {
+    const cellDate = new Date(gridStart);
+    cellDate.setDate(gridStart.getDate() + i);
+    const dateStr = ymdLocal(cellDate);
+    const inMonth = cellDate.getMonth() === month;
+    const isWeekend = cellDate.getDay() === 0 || cellDate.getDay() === 6;
+    const shifts = _calShiftsByDate[dateStr] || [];
+
+    const classes = ["cal-cell"];
+    if (!inMonth) classes.push("cal-empty");
+    if (dateStr === todayStr) classes.push("cal-today");
+    if (dateStr === _calSelectedDate) classes.push("cal-selected");
+    if (isWeekend && inMonth) classes.push("cal-weekend");
+
+    const shiftRows = SHIFT_TYPE_ORDER.map((type) => {
+      const s = shifts.find((x) => x.shift_type === type);
+      if (!s) return "";
+      const info = SHIFT_TYPE_LABELS[type];
+      const docs = Number(s.doctors || 0);
+      const nur = Number(s.nurses || 0);
+      const adm = Number(s.admins || 0);
+      const incomplete = docs < 3 || nur < 6 || adm < 2;
+      return `<div class="cal-shift-row ${incomplete ? "cal-incomplete" : ""}">
+        <span class="cal-badge cal-badge-${info.cls}">${info.letter}</span>
+        <span class="cal-counts">${docs}/${nur}/${adm}</span>
+      </div>`;
+    }).join("");
+
+    html += `<div class="${classes.join(" ")}" data-date="${dateStr}" ${!inMonth ? "" : `tabindex="0"`}>
+      <div class="cal-date">${cellDate.getDate()}</div>
+      <div class="cal-shifts">${shiftRows}</div>
+    </div>`;
+  }
+
+  grid.innerHTML = html;
+  grid.querySelectorAll(".cal-cell:not(.cal-empty)").forEach((cell) => {
+    cell.addEventListener("click", () => selectCalendarDay(cell.dataset.date));
+  });
+}
+
+function selectCalendarDay(dateStr) {
+  _calSelectedDate = dateStr;
+  document.querySelectorAll(".cal-cell").forEach((c) => {
+    c.classList.toggle("cal-selected", c.dataset.date === dateStr);
+  });
+  renderCalendarDayPanel(dateStr);
+}
+
+async function renderCalendarDayPanel(dateStr) {
+  const panel = document.getElementById("cal-day-panel");
+  const label = document.getElementById("cal-day-label");
+  const list = document.getElementById("cal-day-shifts");
+  const detail = document.getElementById("cal-shift-detail");
+
+  panel.style.display = "block";
+  const d = new Date(dateStr + "T00:00:00");
+  const dow = DOW_LABELS_EL[(d.getDay() + 6) % 7];
+  label.textContent = `${dow} ${d.getDate()} ${MONTH_NAMES_EL[d.getMonth()]} ${d.getFullYear()}`;
+
+  const shifts = (_calShiftsByDate[dateStr] || [])
+    .slice()
+    .sort((a, b) => SHIFT_TYPE_ORDER.indexOf(a.shift_type) - SHIFT_TYPE_ORDER.indexOf(b.shift_type));
+
+  if (shifts.length === 0) {
+    list.innerHTML = '<div class="empty">Δεν υπάρχουν καταχωρημένες βάρδιες για αυτή την ημέρα.</div>';
+    detail.innerHTML = "";
+    return;
+  }
+
+  list.innerHTML = shifts.map((s) => {
+    const info = SHIFT_TYPE_LABELS[s.shift_type];
+    const docs = Number(s.doctors || 0);
+    const nur = Number(s.nurses || 0);
+    const adm = Number(s.admins || 0);
+    const pill = (label, n, min) =>
+      `<span class="cal-count-pill ${n >= min ? "cal-count-ok" : "cal-count-low"}">${label}: ${n}/${min}</span>`;
+    return `<div class="cal-day-shift-card cal-shift-${info.cls}" data-shift-id="${s.id}">
+      <div class="cal-day-shift-head">
+        <span class="cal-badge cal-badge-${info.cls}">${info.letter}</span>
+        <span class="cal-day-shift-title">${info.greek} <span class="muted">${info.hours}</span></span>
+        <div class="cal-day-shift-counts">
+          ${pill("Ιατροί", docs, 3)}
+          ${pill("Νοσηλευτές", nur, 6)}
+          ${pill("Διοικ.", adm, 2)}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  detail.innerHTML = '<div class="muted">Κλικ σε βάρδια για λεπτομέρειες προσωπικού.</div>';
+
+  list.querySelectorAll(".cal-day-shift-card").forEach((card) => {
+    card.addEventListener("click", () => loadCalendarShiftDetail(Number(card.dataset.shiftId)));
+  });
+}
+
+async function loadCalendarShiftDetail(shiftId) {
+  const detail = document.getElementById("cal-shift-detail");
+  detail.innerHTML = '<div class="muted">Φόρτωση...</div>';
+  try {
+    const data = await api(`/api/shifts/${shiftId}`);
+    const info = SHIFT_TYPE_LABELS[data.shift.shift_type];
+
+    let assignments = data.assignments || [];
+    const deptFilter = _calDeptFilter ? Number(_calDeptFilter) : null;
+    if (deptFilter) {
+      assignments = assignments.filter((a) => Number(a.department_id) === deptFilter);
+    }
+
+    if (assignments.length === 0) {
+      detail.innerHTML = `<div class="empty">Δεν υπάρχουν αναθέσεις${deptFilter ? " για το επιλεγμένο τμήμα" : ""}.</div>`;
+      return;
+    }
+
+    // Group assignments by department
+    const byDept = {};
+    for (const a of assignments) {
+      const key = a.department || `Τμήμα #${a.department_id}`;
+      if (!byDept[key]) byDept[key] = [];
+      byDept[key].push(a);
+    }
+
+    const deptHtml = Object.entries(byDept).sort((a, b) => a[0].localeCompare(b[0], "el")).map(([dept, rows]) => {
+      const docs = rows.filter((r) => r.staff_type === "Doctor");
+      const nur = rows.filter((r) => r.staff_type === "Nurse");
+      const adm = rows.filter((r) => r.staff_type === "Admin");
+      const renderRow = (r) => {
+        const sub = r.staff_type === "Doctor" ? `${r.specialty || ""} · ${r.doctor_rank || ""}`
+                  : r.staff_type === "Nurse"  ? (r.nurse_rank || "")
+                  : (r.admin_role || "");
+        return `<div class="cal-staff-row">
+          <span class="cal-staff-type t-${r.staff_type}">${r.staff_type}</span>
+          <strong>${escapeHtml(r.last_name + " " + r.first_name)}</strong>
+          <span class="muted">${escapeHtml(sub)}</span>
+        </div>`;
+      };
+      return `<div class="cal-dept-group">
+        <div class="cal-dept-group-title">${escapeHtml(dept)} <span class="muted">(${docs.length}/${nur.length}/${adm.length})</span></div>
+        ${[...docs, ...nur, ...adm].map(renderRow).join("")}
+      </div>`;
+    }).join("");
+
+    detail.innerHTML = `<div class="cal-day-shift-card cal-shift-${info.cls}">
+      <div class="cal-day-shift-head">
+        <span class="cal-badge cal-badge-${info.cls}">${info.letter}</span>
+        <span class="cal-day-shift-title">${info.greek} ${info.hours} <span class="muted">— Shift #${data.shift.id}</span></span>
+      </div>
+      ${deptHtml}
+    </div>`;
+  } catch (err) {
+    detail.innerHTML = `<div class="empty error-msg">Σφάλμα: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// Make loadShifts an alias so the existing shift-submit handler in initAdmin
+// refreshes the calendar after creating a new shift.
+async function loadShifts() {
+  if (_calCurrentMonth) return loadCalendarMonth();
+}
+
+// ──────────────────────────────────────────────────────────────
 // QUERIES Q1 - Q15
 // ──────────────────────────────────────────────────────────────
 let queryDefs = [];
@@ -1180,6 +1580,315 @@ function renderQueryParams(def) {
   });
 }
 
+
+// ──────────────────────────────────────────────────────────────
+// ADMIN — Cascade Delete + Shifts
+// ──────────────────────────────────────────────────────────────
+
+const ADMIN_ENTITY_CFG = {
+  patient:              { search: (q) => `/api/patients?search=${encodeURIComponent(q)}`,  keyField: "amka",       label: (r) => `${r.last_name} ${r.first_name}`, sub: (r) => `ΑΜΚΑ ${r.amka} · ${r.age}χρ` },
+  doctor:               { search: (q) => `/api/doctors?search=${encodeURIComponent(q)}`,   keyField: "staff_amka", label: (r) => `${r.last_name} ${r.first_name}`, sub: (r) => `${r.specialty} · ${r.rank_}` },
+  nurse:                { search: () => `/api/triage/nurses`,                               keyField: "staff_amka", label: (r) => `${r.last_name} ${r.first_name}`, sub: (r) => `${r.rank_} · ${r.department||"—"}`, clientFilter: true },
+  hospitalization:      { search: () => `/api/hospitalizations?status=all&limit=500`, parseResp: (d) => Array.isArray(d) ? d : d.rows || [],                 keyField: "id",         label: (r) => `#${r.id} — ${r.last_name} ${r.first_name}`, sub: (r) => `${r.department} · ${(r.admission_date||"").slice(0,10)}`, clientFilter: true },
+  shift:                { search: () => `/api/shifts`,                                      keyField: "id",         label: (r) => `${(r.shift_date||"").slice(0,10)} ${r.shift_type}`, sub: (r) => `${r.doctors||0}γιατ · ${r.nurses||0}νοσ · ${r.admins||0}διοικ`, clientFilter: true },
+  eval_hospitalization: { search: () => `/api/reviews/hospitalizations`,                   keyField: "id",         label: (r) => `Νοσηλεία #${r.id} — ${r.last_name} ${r.first_name}`, sub: (r) => `${r.department} · ${(r.discharge_date||"").slice(0,10)}`, clientFilter: true, preFilter: (rows) => rows.filter((r) => r.has_evaluation) },
+  eval_doctor:          { search: () => `/api/reviews/doctors-summary`,                    keyField: "staff_amka", label: (r) => `${r.last_name} ${r.first_name}`, sub: (r) => `${r.review_count} αξιολογήσεις · μ.ο. ${r.avg_medical_care}⭐`, clientFilter: true, compositeKey: true },
+};
+
+const IMPACT_LABELS = {
+  hospitalizations: "Νοσηλείες", triage_records: "Triage", prescriptions: "Συνταγές",
+  allergies: "Αλλεργίες", lab_tests: "Εξετάσεις", procedures: "Επεμβάσεις",
+  hospitalization_reviews: "Αξ.νοσηλείας", doctor_reviews: "Αξ.ιατρού",
+  department_assignments: "Συμμ.τμημάτων", surgeries_as_lead: "Χειρ.ως lead",
+  surgeries_as_assistant: "Χειρ.ως βοηθός", reviews_received: "Αξιολογήσεις",
+  shift_assignments: "Βάρδιες", supervised_residents_unlinked: "Ειδ/νοι αποσύνδεση",
+  directs_departments: "Διευθύνει (BLOCK)", active_surgeries: "Ενεργ.χειρ.(BLOCK)",
+  assignments: "Αναθέσεις", assistants: "Βοηθοί", eval_hospitalization: "Αξ.νοσηλείας",
+  eval_doctor: "Αξ.ιατρού",
+};
+
+let _adminSelected = null;
+
+function initAdmin() {
+  const entitySel = document.getElementById("admin-entity-type");
+  const searchInp = document.getElementById("admin-search-input");
+  const resultsList = document.getElementById("admin-results-list");
+  const impactBox = document.getElementById("admin-impact-box");
+  const deleteMsg = document.getElementById("admin-delete-msg");
+
+  // ── Entity type change ─────────────────────────────────────
+  entitySel.addEventListener("change", () => {
+    _adminSelected = null;
+    searchInp.disabled = !entitySel.value;
+    resultsList.style.display = "none";
+    impactBox.style.display = "none";
+    deleteMsg.textContent = "";
+    if (entitySel.value) doAdminSearch("");
+  });
+
+  let _searchTimer = null;
+  searchInp.addEventListener("input", (e) => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => doAdminSearch(e.target.value.trim()), 250);
+  });
+
+  async function doAdminSearch(term) {
+    const entity = entitySel.value;
+    if (!entity) return;
+    const cfg = ADMIN_ENTITY_CFG[entity];
+    try {
+      let resp = await api(cfg.search(term));
+      let rows = cfg.parseResp ? cfg.parseResp(resp) : (Array.isArray(resp) ? resp : resp.rows || resp);
+      if (cfg.preFilter) rows = cfg.preFilter(rows);
+      if (cfg.clientFilter && term) {
+        const t = term.toLowerCase();
+        rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(t));
+      }
+      rows = rows.slice(0, 40);
+      if (rows.length === 0) {
+        resultsList.innerHTML = '<div class="empty">Καμία εγγραφή.</div>';
+      } else {
+        resultsList.innerHTML = rows.map((r, i) => `
+          <div class="admin-result-row" data-i="${i}" style="padding:8px 10px;border-bottom:1px solid #f1f3f5;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+            <div><div>${escapeHtml(cfg.label(r))}</div><div class="muted">${escapeHtml(cfg.sub(r))}</div></div>
+            <button class="linkish admin-select-btn" data-i="${i}">Επιλογή</button>
+          </div>`).join("");
+        resultsList.querySelectorAll(".admin-select-btn").forEach((btn) => {
+          btn.addEventListener("click", () => selectAdminItem(rows[Number(btn.dataset.i)], cfg));
+        });
+      }
+      resultsList.style.display = "block";
+    } catch (err) {
+      resultsList.innerHTML = `<div class="empty error-msg">${escapeHtml(err.message)}</div>`;
+      resultsList.style.display = "block";
+    }
+  }
+
+  async function selectAdminItem(item, cfg) {
+    _adminSelected = { item, cfg };
+    const key = item[cfg.keyField];
+    const impactList = document.getElementById("admin-impact-list");
+    const evalDocList = document.getElementById("admin-eval-doctor-list");
+    evalDocList.style.display = "none";
+    impactList.innerHTML = '<li class="muted">Υπολογισμός...</li>';
+    impactBox.style.display = "block";
+    deleteMsg.textContent = "";
+    document.getElementById("admin-confirm-delete").disabled = false;
+
+    try {
+      if (cfg.compositeKey) {
+        // eval_doctor: load list of individual reviews
+        const data = await api(`/api/reviews/doctor/${encodeURIComponent(key)}`);
+        impactList.innerHTML = `<li>Ιατρός: <strong>${escapeHtml(item.last_name + " " + item.first_name)}</strong></li>
+          <li>Επιλέξτε αξιολογήσεις προς διαγραφή:</li>`;
+        if (data.reviews && data.reviews.length > 0) {
+          evalDocList.style.display = "block";
+          evalDocList.innerHTML = data.reviews.map((r) => `
+            <label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:0.85rem;cursor:pointer;">
+              <input type="checkbox" class="eval-doc-cb" data-hosp="${r.hospitalization_id}" data-amka="${escapeHtml(key)}">
+              Νοσηλεία #${r.hospitalization_id} · ${(r.admission_date||"").slice(0,10)} ·
+              <strong>${"★".repeat(r.medical_care)}${"☆".repeat(5-r.medical_care)}</strong>
+            </label>`).join("") +
+            `<label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:0.85rem;cursor:pointer;margin-top:4px;">
+              <input type="checkbox" id="eval-doc-select-all"> <em>Επιλογή όλων</em>
+            </label>`;
+          document.getElementById("eval-doc-select-all")?.addEventListener("change", (e) => {
+            document.querySelectorAll(".eval-doc-cb").forEach((cb) => (cb.checked = e.target.checked));
+          });
+        }
+      } else {
+        const data = await api(`/api/admin/impact/${entitySel.value}/${encodeURIComponent(key)}`);
+        const entries = Object.entries(data.impact || {}).filter(([, v]) => v > 0);
+        if (entries.length === 0) {
+          impactList.innerHTML = '<li class="muted">Δεν υπάρχουν εξαρτημένες εγγραφές.</li>';
+        } else {
+          impactList.innerHTML = entries
+            .map(([k, v]) => `<li><strong>${v}</strong> ${IMPACT_LABELS[k] || k}</li>`)
+            .join("");
+        }
+      }
+    } catch (err) {
+      impactList.innerHTML = `<li class="error-msg">${escapeHtml(err.message)}</li>`;
+    }
+  }
+
+  document.getElementById("admin-cancel-delete").addEventListener("click", () => {
+    _adminSelected = null;
+    impactBox.style.display = "none";
+    deleteMsg.textContent = "";
+  });
+
+  document.getElementById("admin-confirm-delete").addEventListener("click", async () => {
+    if (!_adminSelected) return;
+    if (!confirm("Είσαι σίγουρος; Η ενέργεια είναι μη αναστρέψιμη.")) return;
+    const { item, cfg } = _adminSelected;
+    const entity = entitySel.value;
+    const key = item[cfg.keyField];
+    const btn = document.getElementById("admin-confirm-delete");
+    btn.disabled = true;
+    deleteMsg.textContent = ""; deleteMsg.className = "meta";
+
+    try {
+      if (cfg.compositeKey) {
+        const checked = [...document.querySelectorAll(".eval-doc-cb:checked")];
+        if (checked.length === 0) throw new Error("Επίλεξε τουλάχιστον μία αξιολόγηση.");
+        let deleted = 0;
+        for (const cb of checked) {
+          const r = await api(`/api/admin/delete/eval_doctor/${encodeURIComponent(cb.dataset.hosp)}/${encodeURIComponent(cb.dataset.amka)}`, { method: "DELETE" });
+          deleted += r.deleted?.eval_doctor || 0;
+        }
+        deleteMsg.textContent = `OK — διαγράφηκαν ${deleted} αξιολόγηση(εις).`;
+      } else {
+        const r = await api(`/api/admin/delete/${entity}/${encodeURIComponent(key)}`, { method: "DELETE" });
+        const summary = Object.entries(r.deleted || {}).filter(([,v])=>v>0).map(([k,v])=>`${IMPACT_LABELS[k]||k}:${v}`).join(", ");
+        deleteMsg.textContent = `OK — διαγράφηκε. ${summary}`;
+      }
+      deleteMsg.classList.add("success-msg");
+      _adminSelected = null;
+      impactBox.style.display = "none";
+      resultsList.style.display = "none";
+      searchInp.value = "";
+    } catch (err) {
+      deleteMsg.textContent = `Σφάλμα: ${err.message}`;
+      deleteMsg.classList.add("error-msg");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ── Shifts ────────────────────────────────────────────────
+  const shiftDate = document.getElementById("shift-date");
+  const shiftType = document.getElementById("shift-type");
+  const shiftDept = document.getElementById("shift-dept");
+  shiftDate.value = new Date().toISOString().slice(0, 10);
+
+  // Load departments into shift form
+  api("/api/departments").then((depts) => {
+    shiftDept.innerHTML = depts.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join("");
+  }).catch(() => {});
+
+  let _shiftStaff = [];
+  let _selectedAmkas = new Set();
+
+  function renderShiftStaff() {
+    const list = document.getElementById("shift-staff-list");
+    list.innerHTML = _shiftStaff.map((s) => {
+      const sub = s.staff_type === "Doctor" ? `${s.specialty} · ${s.doctor_rank}`
+                : s.staff_type === "Nurse"  ? s.nurse_rank : s.admin_role;
+      const sel = _selectedAmkas.has(s.amka);
+      return `<label style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #f1f3f5;cursor:pointer;background:${sel?"#eff6ff":"#fff"};">
+        <input type="checkbox" class="shift-cb" data-amka="${escapeHtml(s.amka)}" ${sel?"checked":""}>
+        <span style="font-size:0.75rem;padding:1px 6px;border-radius:10px;background:${s.staff_type==="Doctor"?"#dbeafe":s.staff_type==="Nurse"?"#d1fae5":"#fef3c7"};color:#1d2733;">${s.staff_type}</span>
+        <strong>${escapeHtml(s.last_name + " " + s.first_name)}</strong>
+        <span class="muted">${escapeHtml(sub||"")}</span>
+      </label>`;
+    }).join("");
+    list.querySelectorAll(".shift-cb").forEach((cb) => {
+      cb.addEventListener("change", (e) => {
+        if (e.target.checked) _selectedAmkas.add(e.target.dataset.amka);
+        else _selectedAmkas.delete(e.target.dataset.amka);
+        updateShiftCounts();
+      });
+    });
+    updateShiftCounts();
+  }
+
+  function updateShiftCounts() {
+    const sel = _shiftStaff.filter((s) => _selectedAmkas.has(s.amka));
+    const doc = sel.filter((s)=>s.staff_type==="Doctor").length;
+    const nur = sel.filter((s)=>s.staff_type==="Nurse").length;
+    const adm = sel.filter((s)=>s.staff_type==="Admin").length;
+    const SENIOR = ["Επιμελητής Α'", "Διευθυντής"];
+    const hasSr = sel.some((s)=>s.staff_type==="Doctor"&&SENIOR.includes(s.doctor_rank));
+    const hasRes = sel.some((s)=>s.staff_type==="Doctor"&&s.doctor_rank==="Ειδικευόμενος");
+    const ok = (n, min) => `<span style="padding:3px 8px;border-radius:6px;font-size:0.82rem;background:${n>=min?"#d1fae5":"#fef3c7"};color:${n>=min?"#065f46":"#92400e"};">${n}/${min}</span>`;
+    document.getElementById("shift-counts").innerHTML =
+      `${ok(doc,3)} Ιατροί ${ok(nur,6)} Νοσηλευτές ${ok(adm,2)} Διοικ.` +
+      (hasRes&&!hasSr ? ` <span style="color:#b91c1c;font-size:0.82rem;">⚠ Senior απαιτείται</span>` : "");
+  }
+
+  document.getElementById("shift-autofill-btn").addEventListener("click", async () => {
+    if (!shiftDate.value || !shiftDept.value) { alert("Συμπλήρωσε ημερομηνία και τμήμα."); return; }
+    const warn = document.getElementById("shift-autofill-warning");
+    warn.textContent = "Αναζήτηση..."; warn.className = "meta";
+    document.getElementById("shift-staff-box").style.display = "block";
+    try {
+      const data = await api("/api/shifts/autofill", { method: "POST", body: JSON.stringify({
+        shift_date: shiftDate.value, shift_type: shiftType.value, department_id: Number(shiftDept.value)
+      })});
+      _selectedAmkas = new Set([...data.suggested.doctors, ...data.suggested.nurses, ...data.suggested.admins].map((s)=>s.amka));
+      // Load full staff list for the dept
+      _shiftStaff = await api(`/api/shifts/staff/by-department?department_id=${shiftDept.value}`);
+      warn.textContent = data.warnings.length ? "⚠ " + data.warnings.join(" · ") : "✓ Πλήρης κάλυψη με βάση τους triggers";
+      warn.className = data.warnings.length ? "meta error-msg" : "meta success-msg";
+      renderShiftStaff();
+    } catch (err) {
+      warn.textContent = `Σφάλμα: ${err.message}`; warn.className = "meta error-msg";
+    }
+  });
+
+  document.getElementById("shift-manual-btn").addEventListener("click", async () => {
+    if (!shiftDept.value) { alert("Επίλεξε τμήμα."); return; }
+    document.getElementById("shift-staff-box").style.display = "block";
+    document.getElementById("shift-autofill-warning").textContent = "Χειροκίνητη επιλογή — στόχος 3/6/2.";
+    _selectedAmkas.clear();
+    _shiftStaff = await api(`/api/shifts/staff/by-department?department_id=${shiftDept.value}`).catch(()=>[]);
+    renderShiftStaff();
+  });
+
+  document.getElementById("shift-cancel-btn").addEventListener("click", () => {
+    document.getElementById("shift-staff-box").style.display = "none";
+    _selectedAmkas.clear(); _shiftStaff = [];
+  });
+
+  document.getElementById("shift-submit-btn").addEventListener("click", async () => {
+    if (_selectedAmkas.size === 0) { alert("Επίλεξε τουλάχιστον ένα μέλος."); return; }
+
+    // Client-side 3/6/2 validation (also enforced server-side)
+    const sel = _shiftStaff.filter((s) => _selectedAmkas.has(s.amka));
+    const doc = sel.filter((s) => s.staff_type === "Doctor").length;
+    const nur = sel.filter((s) => s.staff_type === "Nurse").length;
+    const adm = sel.filter((s) => s.staff_type === "Admin").length;
+    const SENIOR = ["Επιμελητής Α'", "Διευθυντής"];
+    const hasSr  = sel.some((s) => s.staff_type === "Doctor" && SENIOR.includes(s.doctor_rank));
+    const hasRes = sel.some((s) => s.staff_type === "Doctor" && s.doctor_rank === "Ειδικευόμενος");
+    const violations = [];
+    if (doc < 3) violations.push(`Απαιτούνται τουλάχιστον 3 ιατροί (έχεις ${doc})`);
+    if (nur < 6) violations.push(`Απαιτούνται τουλάχιστον 6 νοσηλευτές (έχεις ${nur})`);
+    if (adm < 2) violations.push(`Απαιτούνται τουλάχιστον 2 διοικητικοί (έχεις ${adm})`);
+    if (hasRes && !hasSr) violations.push("Ειδικευόμενος χωρίς Επιμελητή Α΄/Διευθυντή");
+    if (violations.length > 0) {
+      const m = document.getElementById("shift-submit-msg");
+      m.innerHTML = violations.map((v) => `⚠ ${escapeHtml(v)}`).join("<br>");
+      m.className = "meta error-msg";
+      return;
+    }
+
+    const submitBtn = document.getElementById("shift-submit-btn");
+    const msg = document.getElementById("shift-submit-msg");
+    msg.textContent = "Υποβολή..."; msg.className = "meta";
+    submitBtn.disabled = true;
+    try {
+      const r = await api("/api/shifts", { method: "POST", body: JSON.stringify({
+        shift_date: shiftDate.value, shift_type: shiftType.value,
+        department_id: Number(shiftDept.value), staff_amkas: [..._selectedAmkas]
+      })});
+      msg.textContent = `OK — Βάρδια #${r.shift_id} με ${r.assigned} άτομα.`;
+      msg.className = "meta success-msg";
+      document.getElementById("shift-staff-box").style.display = "none";
+      _selectedAmkas.clear();
+      _shiftStaff = [];
+      // Refresh the schedule list so the new shift shows up
+      if (typeof loadShifts === "function") loadShifts().catch(()=>{});
+    } catch (err) {
+      msg.textContent = `Σφάλμα: ${err.message}`;
+      msg.className = "meta error-msg";
+    } finally {
+      submitBtn.disabled = false;     // ← Always re-enable so user can submit another shift
+    }
+  });
+}
+
 // ──────────────────────────────────────────────────────────────
 // Bootstrap
 // ──────────────────────────────────────────────────────────────
@@ -1193,7 +1902,9 @@ async function bootstrap() {
   await initPrescriptions().catch((e) => console.error("prescriptions", e));
   await initTriage().catch((e) => console.error("triage", e));
   await initReviews().catch((e) => console.error("reviews", e));
+  await initCalendar().catch((e) => console.error("calendar", e));
   await initQueries().catch((e) => console.error("queries", e));
+  initAdmin();
 }
 
 bootstrap().catch((err) => {
