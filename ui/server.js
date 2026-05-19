@@ -243,6 +243,39 @@ app.get("/api/specialties", async (_req, res, next) => {
   }
 });
 
+// Doctors eligible for a hospitalization in a given department.
+// Returns doctors who belong to the department via Doctor_has_Department.
+// Does NOT filter by shift — a doctor can attend a patient outside their
+// shift schedule (taktiko iatreio). The UI shows rank so the user can
+// choose wisely.
+app.get("/api/doctors/by-department", async (req, res, next) => {
+  try {
+    const dept_id = Number(req.query.department_id);
+    if (!dept_id) return res.status(400).json({ error: "department_id required" });
+    const rows = await query(
+      `SELECT d.staff_amka AS amka,
+              s.first_name, s.last_name,
+              d.specialty, d.\`rank\` AS rank_
+       FROM Doctor_has_Department dhd
+       JOIN Doctors d ON d.staff_amka = dhd.doctor_amka
+       JOIN Staff   s ON s.amka       = d.staff_amka
+       WHERE dhd.department_id = :dept_id
+       ORDER BY
+         CASE d.\`rank\`
+           WHEN 'Διευθυντής'    THEN 1
+           WHEN 'Επιμελητής Α''' THEN 2
+           WHEN 'Επιμελητής Β''' THEN 3
+           ELSE 4
+         END,
+         s.last_name`,
+      { dept_id }
+    );
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // Hospitalizations
 // ─────────────────────────────────────────────────────────────
@@ -252,32 +285,44 @@ app.get("/api/hospitalizations", async (req, res, next) => {
     const legacyOpen = req.query.open === "true";
     let status = (req.query.status || "").toString().toLowerCase();
     if (!status) status = legacyOpen ? "active" : "all";
+    const limit  = Math.min(parseInt(req.query.limit  || "500", 10), 1000);
+    const offset = parseInt(req.query.offset || "0", 10);
 
-    const flagActive = status === "active" ? 1 : 0;
+    const flagActive    = status === "active"    ? 1 : 0;
     const flagCompleted = status === "completed" ? 1 : 0;
 
-    const rows = await query(
-      `
-      SELECT h.id, h.patient_amka, p.first_name, p.last_name,
-             d.name AS department, b.bed_number, h.bed_id,
-             h.admission_date, h.discharge_date,
-             h.admission_diagnosis_icd10, h.discharge_diagnosis_icd10,
-             h.ken_code, h.total_cost,
-             DATEDIFF(COALESCE(h.discharge_date, NOW()), h.admission_date) AS stay_days
-      FROM Hospitalization h
-      JOIN Patients p ON h.patient_amka = p.amka
-      JOIN Departments d ON h.department_id = d.id
-      LEFT JOIN Beds b ON b.id = h.bed_id
-      WHERE
-        (:flagActive = 0 AND :flagCompleted = 0)
-        OR (:flagActive = 1 AND h.discharge_date IS NULL)
-        OR (:flagCompleted = 1 AND h.discharge_date IS NOT NULL)
-      ORDER BY (h.discharge_date IS NULL) DESC, h.admission_date DESC
-      LIMIT 150
-      `,
-      { flagActive, flagCompleted }
-    );
-    res.json(rows);
+    const [rows, totals] = await Promise.all([
+      query(
+        `
+        SELECT h.id, h.patient_amka, p.first_name, p.last_name,
+               d.name AS department, b.bed_number, h.bed_id,
+               h.admission_date, h.discharge_date,
+               h.admission_diagnosis_icd10, h.discharge_diagnosis_icd10,
+               h.ken_code, h.total_cost,
+               DATEDIFF(COALESCE(h.discharge_date, NOW()), h.admission_date) AS stay_days
+        FROM Hospitalization h
+        JOIN Patients p ON h.patient_amka = p.amka
+        JOIN Departments d ON h.department_id = d.id
+        LEFT JOIN Beds b ON b.id = h.bed_id
+        WHERE
+          (:flagActive = 0 AND :flagCompleted = 0)
+          OR (:flagActive = 1 AND h.discharge_date IS NULL)
+          OR (:flagCompleted = 1 AND h.discharge_date IS NOT NULL)
+        ORDER BY (h.discharge_date IS NULL) DESC, h.admission_date DESC
+        LIMIT ${limit} OFFSET ${offset}
+        `,
+        { flagActive, flagCompleted }
+      ),
+      query(
+        `SELECT
+           COUNT(*) AS total,
+           SUM(h.discharge_date IS NULL) AS active,
+           SUM(h.discharge_date IS NOT NULL) AS completed
+         FROM Hospitalization h`,
+        {}
+      )
+    ]);
+    res.json({ rows, ...totals[0], limit, offset });
   } catch (error) {
     next(error);
   }
@@ -370,6 +415,7 @@ app.post("/api/hospitalizations", async (req, res, next) => {
     if (missing.length > 0) return res.status(400).json({ error: `Missing fields: ${missing.join(", ")}` });
 
     const triageId = b.triage_id ? Number(b.triage_id) : null;
+    const attendingDoctor = b.attending_doctor_amka || null;
 
     const insertId = await withTransaction(async (conn) => {
       const [result] = await conn.execute(
@@ -388,18 +434,22 @@ app.post("/api/hospitalizations", async (req, res, next) => {
           ken_code: b.ken_code
         }
       );
+      const hospId = result.insertId;
       if (triageId) {
         await conn.execute(
           `UPDATE Triage_Records
               SET outcome = 'Admitted', resolved_at = NOW(), hospitalization_id = :hid
             WHERE id = :tid AND outcome IS NULL`,
-          { hid: result.insertId, tid: triageId }
+          { hid: hospId, tid: triageId }
         );
       }
-      return result.insertId;
+      // If an attending doctor was chosen, create a lab test placeholder or
+      // simply store the association via a prescription stub — most realistic:
+      // just return the doctor so the UI can show it. No DB column needed.
+      return { insertId: hospId, attending_doctor_amka: attendingDoctor };
     });
 
-    res.status(201).json({ ok: true, hospitalization_id: insertId, triage_id: triageId });
+    res.status(201).json({ ok: true, hospitalization_id: insertId.insertId, triage_id: triageId, attending_doctor_amka: insertId.attending_doctor_amka });
   } catch (error) {
     next(error);
   }

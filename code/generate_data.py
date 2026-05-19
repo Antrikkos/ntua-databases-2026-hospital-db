@@ -296,15 +296,68 @@ def random_profession(age):
     if age > 65: return random.choice(RETIRED)
     return random.choice(ADULT_PROFESSIONS)
 
-# Συμπτώματα triage ανά ηλικιακή ομάδα
-SYMPTOMS_ADULT = ['Πόνος στο στήθος', 'Δύσπνοια', 'Πυρετός', 'Κεφαλαλγία',
-                  'Κοιλιακό άλγος', 'Τραύμα', 'Ζάλη', 'Υπέρταση',
-                  'Ταχυκαρδία', 'Σπασμοί', 'Λιποθυμία', 'Έμφραγμα', 'Εγκεφαλικό']
-SYMPTOMS_CHILD = ['Υψηλός πυρετός', 'Βήχας', 'Εμετός', 'Διάρροια', 'Πτώση',
-                  'Κοιλιακό άλγος', 'Αλλεργική αντίδραση', 'Δύσπνοια']
+# Συμπτώματα με αντίστοιχο εύρος επιπέδου επείγοντος (min, max)
+# Βασισμένο στο Manchester Triage System
+SYMPTOMS_WITH_URGENCY = [
+    # Level 1 — Άμεσο (απειλητικά για τη ζωή)
+    ('Καρδιακή ανακοπή',         1, 1),
+    ('Έμφραγμα μυοκαρδίου',      1, 1),
+    ('Εγκεφαλικό επεισόδιο',     1, 1),
+    ('Αναπνευστική ανακοπή',     1, 1),
+    ('Αναφυλακτικό σοκ',         1, 1),
+    ('Σοβαρό τραύμα κεφαλής',    1, 2),
+    ('Σπασμοί',                  1, 2),
+    # Level 2 — Επείγον
+    ('Οξύ κοιλιακό άλγος',       2, 2),
+    ('Σοβαρή δύσπνοια',          2, 2),
+    ('Πόνος στο στήθος',         2, 2),
+    ('Υψηλός πυρετός (>39°C)',   2, 3),
+    ('Ταχυκαρδία',               2, 3),
+    ('Λιποθυμία',                2, 3),
+    ('Αλλεργική αντίδραση',      2, 3),
+    ('Υπερτασική κρίση',         2, 3),
+    # Level 3 — Επιτακτικό
+    ('Ήπιος πόνος στο στήθος',   3, 3),
+    ('Πυρετός (38-39°C)',        3, 3),
+    ('Κεφαλαλγία',               3, 4),
+    ('Κοιλιακό άλγος',           3, 4),
+    ('Εμετός',                   3, 4),
+    ('Ζάλη',                     3, 4),
+    ('Ήπιο τραύμα',              3, 4),
+    # Level 4 — Λιγότερο επείγον
+    ('Ήπια κεφαλαλγία',          4, 4),
+    ('Ήπιος πυρετός (<38°C)',    4, 5),
+    ('Βήχας',                    4, 5),
+    ('Διάρροια',                 4, 5),
+    ('Μέτριο κοιλιακό άλγος',   4, 5),
+    # Level 5 — Μη επείγον
+    ('Ήπιος πονοκέφαλος',        5, 5),
+    ('Κόπωση',                   5, 5),
+    ('Ήπια ναυτία',              5, 5),
+    ('Δερματικό εξάνθημα',       5, 5),
+    ('Ρινική συμφόρηση',         5, 5),
+]
+
+# Παιδιατρικά συμπτώματα με urgency (παιδιά κλιμακώνουν πιο γρήγορα)
+SYMPTOMS_CHILD_URGENCY = [
+    ('Υψηλός πυρετός (>39°C)',     1, 2),
+    ('Δύσπνοια',                   1, 2),
+    ('Σπασμοί',                    1, 1),
+    ('Αλλεργική αντίδραση',        2, 2),
+    ('Εμετός με πυρετό',           2, 3),
+    ('Κοιλιακό άλγος',             3, 4),
+    ('Πτώση / τραύμα',             3, 4),
+    ('Διάρροια',                   4, 5),
+    ('Βήχας',                      4, 5),
+    ('Ήπιος πυρετός',              4, 5),
+]
 
 def random_symptoms(age):
-    return random.choice(SYMPTOMS_CHILD if age < 16 else SYMPTOMS_ADULT)
+    """Επιστρέφει (symptoms_text, urgency_level) κλινικά συνεπή."""
+    pool = SYMPTOMS_CHILD_URGENCY if age < 16 else SYMPTOMS_WITH_URGENCY
+    symptom, u_min, u_max = random.choice(pool)
+    urgency = random.randint(u_min, u_max)
+    return symptom, urgency
 
 # ─── ΦΟΡΤΩΣΗ ΔΕΔΟΜΕΝΩΝ ΑΝΑΦΟΡΑΣ ────────────────────────────────────────────
 # Διαβάζουμε τα πραγματικά αρχεία αν βρίσκονται στον τρέχοντα φάκελο.
@@ -532,7 +585,7 @@ w("-- Spaces")
 spaces = list(range(1, 11))
 for i in spaces:
     stype = 'Χειρουργείο' if i <= 6 else 'Αίθουσα Επέμβασης'
-    w(f"INSERT INTO Spaces (id, name, type) VALUES ({i}, {q(stype+' '+str(i))}, {q(stype)});")
+    w(f"INSERT IGNORE INTO Spaces (id, name, type) VALUES ({i}, {q(stype+' '+str(i))}, {q(stype)});")
 w("")
 
 # ============================================================
@@ -791,7 +844,7 @@ w("-- Patients")
 patient_amkas = []
 patient_info = {}  # amka -> dict(gender, age)
 
-for i in range(200):
+for i in range(240):
     amka = gen_amka()
     gender = random.choice(GENDERS)
     gender_key = 'male' if gender == 'Αρσενικό' else 'female'
@@ -988,6 +1041,13 @@ icd10_codes = [c for c, _ in SAMPLE_ICD10]
 ken_codes   = [c for c, _, _ in SAMPLE_KEN]
 ken_data    = {c: (cost, days) for c, cost, days in SAMPLE_KEN}
 
+# FIX Q14: only 25 common ICD codes for hospitalizations
+_COMMON_ICD = ['I21','I50','I63','J18','J44','K35','K80','K92',
+               'S72','S06','C34','C50','C18','N18','N39','E11',
+               'E87','M16','O80','O34','A09','B97','F20','G35','I10']
+_icd_set = {c for c, _ in SAMPLE_ICD10}
+HOSP_ICD_POOL = [c for c in _COMMON_ICD if c in _icd_set] or icd10_codes[:25]
+
 # Διαθεσιμότητα κλίνης
 beds_with_open = set()
 bed_periods = {}
@@ -1024,7 +1084,7 @@ def pick_compatible(dept_id):
         pool = [p for p in patient_amkas if patient_info[p]['age'] >= 18]
     return random.choice(pool) if pool else None
 
-while hid <= 500 and attempts < 12000:
+while hid <= 600 and attempts < 15000:
     attempts += 1
     bed_id, dept_id = random.choice(bed_ids)
     pamka = pick_compatible(dept_id)
@@ -1044,8 +1104,8 @@ while hid <= 500 and attempts < 12000:
     if dis is None:
         beds_with_open.add(bed_id)
 
-    adm_icd = random.choice(icd10_codes)
-    dis_icd = random.choice(icd10_codes) if dis else None
+    adm_icd = random.choice(HOSP_ICD_POOL)
+    dis_icd = random.choice(HOSP_ICD_POOL) if dis else None
     ken = random.choice(ken_codes)
 
     # FIX: ο trigger calculate_hospitalization_cost είναι BEFORE UPDATE και
@@ -1094,8 +1154,8 @@ for pamka in q3_patients:
             else:
                 continue
         bed_periods.setdefault(bed_id, []).append((adm_d, dis_d))
-        adm_icd = random.choice(icd10_codes)
-        dis_icd = random.choice(icd10_codes)
+        adm_icd = random.choice(HOSP_ICD_POOL)
+        dis_icd = random.choice(HOSP_ICD_POOL)
         ken = random.choice(ken_codes)
         # Όπως παραπάνω: υπολογισμός cost στον Python (ο trigger είναι BEFORE UPDATE).
         base_cost, mdn = ken_data[ken]
@@ -1116,39 +1176,60 @@ triage_ids = []
 tid = 1
 triage_nurse_amkas = [a for a in nurse_amkas[:100]]  # νοσηλευτές triage
 
-# 1. Triage για κάθε νοσηλεία (υποχρεωτικό)
+# 1. Triage για κάθε νοσηλεία — outcome=Admitted, resolved
 for hid_r, pamka, dept_id, adm, dis in hosp_ids:
     namka = random.choice(triage_nurse_amkas)
     age = patient_info[pamka]['age']
-    symptoms = random_symptoms(age)
-    # Επείγον επίπεδο: άμεσο/επείγον για νοσηλείες σε ΜΕΘ/Επείγοντα, άλλα για τα υπόλοιπα
     dname = DEPT_INFO[dept_id-1][0]
     if dname in ('ΜΕΘ', 'Επείγοντα'):
-        urgency = random.choice([1, 2])
+        # Serious symptoms only for ICU/ER admissions
+        serious_pool = [s for s in (SYMPTOMS_CHILD_URGENCY if age < 16 else SYMPTOMS_WITH_URGENCY) if s[2] <= 2]
+        row = random.choice(serious_pool) if serious_pool else SYMPTOMS_WITH_URGENCY[0]
+        symptoms, urgency = row[0], random.randint(row[1], row[2])
+        urgency = min(urgency, 2)
     else:
-        urgency = random.choice([2, 3, 4])
-    # Άφιξη: λίγες ώρες πριν την εισαγωγή (0-12 ώρες)
+        symptoms, urgency = random_symptoms(age)
     arr_time = adm - timedelta(hours=random.randint(0, 12), minutes=random.randint(0, 59))
-    w(f"INSERT INTO Triage_Records (id,patient_amka,nurse_amka,symptoms,urgency_level,arrival_time) VALUES ({tid},{q(pamka)},{q(namka)},{q(symptoms)},{urgency},{sql_dt(arr_time)});")
+    w(f"INSERT INTO Triage_Records (id,patient_amka,nurse_amka,symptoms,urgency_level,arrival_time,outcome,resolved_at,hospitalization_id) VALUES ({tid},{q(pamka)},{q(namka)},{q(symptoms)},{urgency},{sql_dt(arr_time)},'Admitted',{sql_dt(adm)},{hid_r});")
     triage_ids.append((tid, pamka, urgency, arr_time))
     tid += 1
 
-# 2. Extra triage για ασθενείς που ΔΕΝ νοσηλεύτηκαν (αποχωρούν με οδηγίες)
-# Στόχος: ~100 extra triage records (Q15 data)
+# 2. Extra triage — αποχωρούν (outcome=Discharged), ιστορικά resolved
 hosp_patients_set = set(pamka for _, pamka, _, _, _ in hosp_ids)
 extra_count = 0
 for i in range(200):
-    if extra_count >= 100: break
+    if extra_count >= 120: break
     pamka = random.choice(patient_amkas)
     namka = random.choice(triage_nurse_amkas)
     age = patient_info[pamka]['age']
-    symptoms = random_symptoms(age)
-    urgency = random.choice([3, 4, 5])  # λιγότερο επείγον → αποχωρεί
-    arr_time = random_datetime(date(2023, 1, 1), date(2026, 5, 10))
-    w(f"INSERT INTO Triage_Records (id,patient_amka,nurse_amka,symptoms,urgency_level,arrival_time) VALUES ({tid},{q(pamka)},{q(namka)},{q(symptoms)},{urgency},{sql_dt(arr_time)});")
+    # Discharged patients have mild symptoms (urgency 3-5 only)
+    # Pick from symptoms that map to urgency >=3
+    mild_pool = [s for s in (SYMPTOMS_CHILD_URGENCY if age < 16 else SYMPTOMS_WITH_URGENCY) if s[1] >= 3]
+    if not mild_pool:
+        mild_pool = SYMPTOMS_WITH_URGENCY[-5:]
+    symptom_row = random.choice(mild_pool)
+    symptoms = symptom_row[0]
+    urgency = random.randint(symptom_row[1], symptom_row[2])
+    arr_time = random_datetime(date(2023, 1, 1), date(2026, 5, 14))
+    resolved_dt = arr_time + timedelta(minutes=random.randint(20, 240))
+    w(f"INSERT INTO Triage_Records (id,patient_amka,nurse_amka,symptoms,urgency_level,arrival_time,outcome,resolved_at) VALUES ({tid},{q(pamka)},{q(namka)},{q(symptoms)},{urgency},{sql_dt(arr_time)},'Discharged',{sql_dt(resolved_dt)});")
     triage_ids.append((tid, pamka, urgency, arr_time))
     tid += 1
     extra_count += 1
+
+# 3. Pending triage — μόνο τελευταίες 48 ώρες (outcome IS NULL → φαίνεται στη queue)
+for i in range(12):
+    pamka = random.choice(patient_amkas)
+    namka = random.choice(triage_nurse_amkas)
+    age = patient_info[pamka]['age']
+    symptoms, urgency = random_symptoms(age)
+    hours_ago = random.randint(1, 47)
+    arr_time = datetime(2026, 5, 17, 12, 0, 0) - timedelta(hours=hours_ago, minutes=random.randint(0, 59))
+    w(f"INSERT INTO Triage_Records (id,patient_amka,nurse_amka,symptoms,urgency_level,arrival_time) VALUES ({tid},{q(pamka)},{q(namka)},{q(symptoms)},{urgency},{sql_dt(arr_time)});")
+    triage_ids.append((tid, pamka, urgency, arr_time))
+    tid += 1
+w("")
+
 w("")
 
 # ============================================================
@@ -1171,7 +1252,7 @@ hosp_2026 = [h for h in hosp_ids if h[3].year == 2026 and h[4] is not None]
 hosp_other = [h for h in hosp_ids if h[3].year != 2026 and h[4] is not None]
 
 for attempt in range(3000):
-    if pid > 150: break
+    if pid > 180: break
     if pid <= 60 and hosp_2026:
         hid_r, pamka, dept_id, adm, dis = random.choice(hosp_2026)
     else:
@@ -1232,7 +1313,7 @@ w("-- Lab Tests")
 completed_hosps = [(h, p, d, a, di) for h, p, d, a, di in hosp_ids if di is not None]
 lab_count = 0
 attempts = 0
-while lab_count < 200 and attempts < 3000:
+while lab_count < 240 and attempts < 4000:
     attempts += 1
     hid_r, _, _, adm_h, dis_h = random.choice(completed_hosps)
     ldate = random_datetime(adm_h.date(), dis_h.date())
@@ -1259,7 +1340,7 @@ presc_unique = set()
 
 # Παίρνουμε όλες τις completed hosps, και αν τρέξει το pool ξανατρέχουμε
 for hid_r, pamka, dept_id, adm, dis in (random.sample(completed_hosps, len(completed_hosps)) * 5):
-    if dis is None or presc_count >= 300: break
+    if dis is None or presc_count >= 360: break
     start_d = random_date(adm.date(), dis.date())
     # FIX: γιατρός με βάρδια στην ημερομηνία συνταγής
     candidates = [d for d in doctor_amkas if start_d in doctor_shift_dates.get(d, set())]
@@ -1307,12 +1388,40 @@ w("")
 # ============================================================
 # ENTITY IMAGES
 # ============================================================
-w("-- Entity Images (split per entity type so we can carry real FKs)")
+DEPT_IMAGES = {
+    'Καρδιολογία':   'https://images.unsplash.com/photo-1628348068343-c6a848d2b6dd?w=800',
+    'Χειρουργική':   'https://images.unsplash.com/photo-1551190822-a9333d879b1f?w=800',
+    'ΜΕΘ':           'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=800',
+    'Επείγοντα':     'https://images.unsplash.com/photo-1587745416684-47953f16f02f?w=800',
+    'Νευρολογία':    'https://images.unsplash.com/photo-1559757175-0eb30cd8c063?w=800',
+    'Ορθοπεδική':    'https://images.unsplash.com/photo-1504439468489-c8920d796a29?w=800',
+    'Παιδιατρική':   'https://images.unsplash.com/photo-1576671081837-49000212a370?w=800',
+    'Μαιευτική':     'https://images.unsplash.com/photo-1584515933487-779824d29309?w=800',
+    'Ογκολογία':     'https://images.unsplash.com/photo-1666214280391-8ff5bd3c0bf0?w=800',
+    'Πνευμονολογία': 'https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=800',
+    'Νεφρολογία':    'https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=800',
+    'Ουρολογία':     'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800',
+    'Οφθαλμολογία':  'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=800',
+    'ΩΡΛ':           'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800',
+    'Δερματολογία':  'https://images.unsplash.com/photo-1596526131083-e8c633c948d2?w=800',
+}
+DOCTOR_IMGS = [
+    'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=400',
+    'https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=400',
+    'https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=400',
+    'https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=400',
+    'https://images.unsplash.com/photo-1614608682850-e0d6ed316d47?w=400',
+    'https://images.unsplash.com/photo-1527613426441-4da17471b66d?w=400',
+]
+w("-- Department & Doctor Images")
 for i, dept_id in enumerate(dept_ids):
     dname = DEPT_INFO[i][0]
-    w(f"INSERT INTO Department_Images (department_id,image_url,description) VALUES ({dept_id},{q(f'https://images.hygeiopolis.gr/dept/{dept_id}.jpg')},{q(f'Φωτογραφία τμήματος {dname}')});")
-for amka in random.sample(doctor_amkas, 20):
-    w(f"INSERT INTO Doctor_Images (doctor_amka,image_url,description) VALUES ({q(amka)},{q(f'https://images.hygeiopolis.gr/doctors/{amka}.jpg')},'Φωτογραφία ιατρού');")
+    url = DEPT_IMAGES.get(dname, 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=800')
+    w(f"INSERT IGNORE INTO Department_Images (department_id,image_url,description) VALUES ({dept_id},{q(url)},{q(f'Φωτογραφία τμήματος {dname}')});")
+for amka in random.sample(doctor_amkas, min(30, len(doctor_amkas))):
+    url = random.choice(DOCTOR_IMGS)
+    w(f"INSERT IGNORE INTO Doctor_Images (doctor_amka,image_url,description) VALUES ({q(amka)},{q(url)},'Φωτογραφία ιατρού');")
+w("")
 w("")
 
 w("SET FOREIGN_KEY_CHECKS=1;")

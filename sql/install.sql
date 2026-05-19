@@ -923,7 +923,7 @@ BEGIN
         JOIN Doctors d ON sa.staff_amka = d.staff_amka
         WHERE sa.shift_id      = NEW.shift_id
           AND sa.department_id = NEW.department_id
-          AND d.`rank` IN ('Επιμελητής Α\'', 'Διευθυντής');
+          AND d.`rank` IN ('Επιμελητής Α''', 'Διευθυντής');
 
         IF senior_present = 0 THEN
             SIGNAL SQLSTATE '45000'
@@ -1243,6 +1243,490 @@ BEGIN
 END //
 DELIMITER ;
 
+
+DELIMITER //
+CREATE FUNCTION calculate_hospitalization_cost(p_hosp_id INT)
+RETURNS DECIMAL(10,2)
+READS SQL DATA
+DETERMINISTIC
+BEGIN
+    DECLARE v_basic     DECIMAL(10,2) DEFAULT 0;
+    DECLARE v_mdn       INT           DEFAULT 0;
+    DECLARE v_actual    INT           DEFAULT 0;
+    DECLARE v_extra_per_day DECIMAL(10,2) DEFAULT 100.00;
+    DECLARE v_total     DECIMAL(10,2) DEFAULT 0;
+    DECLARE v_adm DATETIME;
+    DECLARE v_dis DATETIME;
+
+    SELECT k.basic_cost, k.avg_duration_days, h.admission_date, h.discharge_date
+      INTO v_basic, v_mdn, v_adm, v_dis
+    FROM Hospitalization h
+    JOIN KEN_Catalog k ON h.ken_code = k.code
+    WHERE h.id = p_hosp_id;
+
+    IF v_dis IS NULL THEN
+        -- Ενεργή νοσηλεία: επιστρέφουμε basic cost μόνο
+        RETURN v_basic;
+    END IF;
+
+    SET v_actual = DATEDIFF(v_dis, v_adm);
+    SET v_total  = v_basic + GREATEST(0, v_actual - v_mdn) * v_extra_per_day;
+    RETURN v_total;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- PROCEDURE 2: recalculate_all_hospitalization_costs()
+-- Ξανα-υπολογίζει τα costs όλων των νοσηλειών.
+-- Χρήσιμο μετά από bulk import ή αλλαγή ΚΕΝ τιμολογίου.
+-- -----------------------------------------------------
+DROP PROCEDURE IF EXISTS recalculate_all_hospitalization_costs;
+DELIMITER //
+CREATE PROCEDURE recalculate_all_hospitalization_costs()
+BEGIN
+    UPDATE Hospitalization h
+    SET h.total_cost = calculate_hospitalization_cost(h.id)
+    WHERE h.discharge_date IS NOT NULL;
+
+    SELECT ROW_COUNT() AS rows_updated;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- FUNCTION 3: get_department_revenue(dept_id, year)
+-- Συνολικά έσοδα τμήματος για συγκεκριμένο έτος.
+-- -----------------------------------------------------
+DROP FUNCTION IF EXISTS get_department_revenue;
+DELIMITER //
+CREATE FUNCTION get_department_revenue(p_dept_id INT, p_year INT)
+RETURNS DECIMAL(12,2)
+READS SQL DATA
+DETERMINISTIC
+BEGIN
+    DECLARE v_revenue DECIMAL(12,2) DEFAULT 0;
+
+    SELECT COALESCE(SUM(total_cost), 0) INTO v_revenue
+    FROM Hospitalization
+    WHERE department_id = p_dept_id
+      AND YEAR(admission_date) = p_year;
+
+    RETURN v_revenue;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- FUNCTION 4: available_beds_in_dept(dept_id)
+-- Πόσες κλίνες είναι διαθέσιμες στο τμήμα ΤΩΡΑ.
+-- -----------------------------------------------------
+DROP FUNCTION IF EXISTS available_beds_in_dept;
+DELIMITER //
+CREATE FUNCTION available_beds_in_dept(p_dept_id INT)
+RETURNS INT
+READS SQL DATA
+DETERMINISTIC
+BEGIN
+    DECLARE v_count INT DEFAULT 0;
+
+    -- Διαθέσιμη = δεν είναι 'Υπό Συντήρηση' ΚΑΙ δεν έχει ενεργή νοσηλεία
+    -- (Το status πεδίο δεν είναι αξιόπιστο γιατί δεν συγχρονίζεται πάντα
+    --  με την πραγματική κατάσταση — οι ενεργές νοσηλείες είναι το ground truth)
+    SELECT COUNT(*) INTO v_count
+    FROM Beds b
+    WHERE b.department_id = p_dept_id
+      AND b.status <> 'Υπό Συντήρηση'
+      AND NOT EXISTS (
+          SELECT 1 FROM Hospitalization h
+          WHERE h.bed_id = b.id
+            AND h.discharge_date IS NULL
+      );
+    RETURN v_count;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- PROCEDURE 5: admit_patient(...)
+-- Atomic εισαγωγή ασθενή:
+--   - Βρίσκει διαθέσιμη κλίνη στο τμήμα
+--   - Δημιουργεί νοσηλεία
+--   - Ενημερώνει κατάσταση κλίνης
+-- Εξάγει το νέο hosp_id μέσω OUT parameter.
+-- -----------------------------------------------------
+DROP PROCEDURE IF EXISTS admit_patient;
+DELIMITER //
+CREATE PROCEDURE admit_patient(
+    IN  p_patient_amka VARCHAR(45),
+    IN  p_department_id INT,
+    IN  p_admission_diagnosis_icd10 VARCHAR(10),
+    IN  p_ken_code VARCHAR(20),
+    OUT p_new_hosp_id INT
+)
+BEGIN
+    DECLARE v_bed_id INT DEFAULT NULL;
+    DECLARE v_basic_cost DECIMAL(10,2) DEFAULT 0;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    -- Βρίσκουμε την πρώτη διαθέσιμη κλίνη
+    SELECT b.id INTO v_bed_id
+    FROM Beds b
+    WHERE b.department_id = p_department_id
+      AND b.status = 'Διαθέσιμη'
+      AND NOT EXISTS (
+          SELECT 1 FROM Hospitalization h
+          WHERE h.bed_id = b.id AND h.discharge_date IS NULL
+      )
+    LIMIT 1;
+
+    IF v_bed_id IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Σφάλμα: Δεν υπάρχει διαθέσιμη κλίνη στο τμήμα.';
+    END IF;
+
+    -- Βασικό κόστος από ΚΕΝ
+    SELECT basic_cost INTO v_basic_cost
+    FROM KEN_Catalog WHERE code = p_ken_code;
+
+    -- Δημιουργία νοσηλείας
+    INSERT INTO Hospitalization
+        (patient_amka, bed_id, department_id, admission_date,
+         admission_diagnosis_icd10, ken_code, total_cost)
+    VALUES
+        (p_patient_amka, v_bed_id, p_department_id, NOW(),
+         p_admission_diagnosis_icd10, p_ken_code, v_basic_cost);
+
+    SET p_new_hosp_id = LAST_INSERT_ID();
+
+    -- Κλίνη → Κατειλημμένη
+    UPDATE Beds SET status = 'Κατειλημμένη' WHERE id = v_bed_id;
+
+    COMMIT;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- PROCEDURE 6: discharge_patient(...)
+-- Atomic έξοδος ασθενή:
+--   - Κλείνει τη νοσηλεία (discharge_date + diagnosis)
+--   - Υπολογίζει τελικό κόστος
+--   - Ελευθερώνει την κλίνη
+-- -----------------------------------------------------
+DROP PROCEDURE IF EXISTS discharge_patient;
+DELIMITER //
+CREATE PROCEDURE discharge_patient(
+    IN p_hosp_id INT,
+    IN p_discharge_date DATETIME,
+    IN p_discharge_diagnosis_icd10 VARCHAR(10)
+)
+BEGIN
+    DECLARE v_bed_id INT;
+    DECLARE v_final_cost DECIMAL(10,2);
+    DECLARE v_already_discharged DATETIME;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    SELECT bed_id, discharge_date INTO v_bed_id, v_already_discharged
+    FROM Hospitalization WHERE id = p_hosp_id;
+
+    IF v_already_discharged IS NOT NULL THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Σφάλμα: Η νοσηλεία είναι ήδη κλεισμένη.';
+    END IF;
+
+    -- Ενημέρωση discharge fields
+    UPDATE Hospitalization
+    SET discharge_date = p_discharge_date,
+        discharge_diagnosis_icd10 = p_discharge_diagnosis_icd10
+    WHERE id = p_hosp_id;
+
+    -- Υπολογισμός & αποθήκευση τελικού κόστους
+    SET v_final_cost = calculate_hospitalization_cost(p_hosp_id);
+    UPDATE Hospitalization
+    SET total_cost = v_final_cost
+    WHERE id = p_hosp_id;
+
+    -- Απελευθέρωση κλίνης
+    UPDATE Beds SET status = 'Διαθέσιμη' WHERE id = v_bed_id;
+
+    COMMIT;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- PROCEDURE 7: assign_to_shift(...)
+-- Wrapper που εκτελεί assignment βάρδιας μέσα σε
+-- transaction. Τα υπάρχοντα triggers κάνουν τους
+-- ελέγχους (μηνιαία όρια, 8ωρο rest, supervision, κλπ).
+-- -----------------------------------------------------
+DROP PROCEDURE IF EXISTS assign_to_shift;
+DELIMITER //
+CREATE PROCEDURE assign_to_shift(
+    IN p_shift_id INT,
+    IN p_staff_amka VARCHAR(45),
+    IN p_department_id INT
+)
+BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    INSERT INTO Shift_Assignments (shift_id, staff_amka, department_id)
+    VALUES (p_shift_id, p_staff_amka, p_department_id);
+    COMMIT;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- PROCEDURE 8: get_patient_history(patient_amka)
+-- Επιστρέφει το πλήρες ιστορικό του ασθενή
+-- (multi-result-set).
+-- -----------------------------------------------------
+DROP PROCEDURE IF EXISTS get_patient_history;
+DELIMITER //
+CREATE PROCEDURE get_patient_history(IN p_patient_amka VARCHAR(45))
+BEGIN
+    -- Νοσηλείες
+    SELECT
+        h.id, h.admission_date, h.discharge_date,
+        d.name AS department,
+        h.admission_diagnosis_icd10,
+        h.discharge_diagnosis_icd10,
+        h.ken_code, h.total_cost
+    FROM Hospitalization h
+    JOIN Departments d ON h.department_id = d.id
+    WHERE h.patient_amka = p_patient_amka
+    ORDER BY h.admission_date DESC;
+
+    -- Συνταγές
+    SELECT
+        p.medicine_code,
+        m.brand_name,
+        p.start_date, p.end_date,
+        p.dosage, p.frequency,
+        CONCAT(s.first_name, ' ', s.last_name) AS doctor
+    FROM Prescriptions p
+    JOIN Medicine_EMA m ON p.medicine_code = m.code
+    JOIN Staff s ON p.doctor_amka = s.amka
+    WHERE p.patient_amka = p_patient_amka
+    ORDER BY p.start_date DESC;
+
+    -- Εξετάσεις (μέσω νοσηλειών)
+    SELECT
+        l.type, l.test_date, l.result_text,
+        l.result_value, l.unit, l.cost
+    FROM Lab_Tests l
+    JOIN Hospitalization h ON l.hospitalization_id = h.id
+    WHERE h.patient_amka = p_patient_amka
+    ORDER BY l.test_date DESC;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- PROCEDURE 9: get_doctor_workload(doctor_amka, year)
+-- Στατιστικά φόρτου εργασίας ιατρού για συγκεκριμένο
+-- έτος: βάρδιες, επεμβάσεις, συνταγές.
+-- -----------------------------------------------------
+DROP PROCEDURE IF EXISTS get_doctor_workload;
+DELIMITER //
+CREATE PROCEDURE get_doctor_workload(
+    IN p_doctor_amka VARCHAR(45),
+    IN p_year INT
+)
+BEGIN
+    SELECT
+        (SELECT COUNT(*)
+         FROM Shift_Assignments sa
+         JOIN Shifts sh ON sa.shift_id = sh.id
+         WHERE sa.staff_amka = p_doctor_amka
+           AND YEAR(sh.shift_date) = p_year)        AS total_shifts,
+
+        (SELECT COUNT(*)
+         FROM Procedure_Records pr
+         WHERE pr.main_surgeon_amk = p_doctor_amka
+           AND YEAR(pr.start_time) = p_year)        AS lead_surgeries,
+
+        (SELECT COUNT(*)
+         FROM Procedure_Assistants pa
+         JOIN Procedure_Records pr ON pa.procedure_record_id = pr.id
+         WHERE pa.staff_amka = p_doctor_amka
+           AND YEAR(pr.start_time) = p_year)        AS assisted_surgeries,
+
+        (SELECT COUNT(*)
+         FROM Prescriptions p
+         WHERE p.doctor_amka = p_doctor_amka
+           AND YEAR(p.start_date) = p_year)         AS prescriptions_issued,
+
+        (SELECT COUNT(*)
+         FROM Lab_Tests l
+         WHERE l.ordering_doctor_amka = p_doctor_amka
+           AND YEAR(l.test_date) = p_year)          AS lab_tests_ordered;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- TRIGGER: auto_update_bed_status
+-- Όταν δημιουργείται νοσηλεία → κλίνη γίνεται
+-- 'Κατειλημμένη'. Όταν κλείνει → 'Διαθέσιμη'.
+-- (Συγχρονισμός Beds.status με ενεργές νοσηλείες)
+-- -----------------------------------------------------
+DROP TRIGGER IF EXISTS auto_set_bed_occupied;
+DELIMITER //
+CREATE TRIGGER auto_set_bed_occupied
+AFTER INSERT ON Hospitalization
+FOR EACH ROW
+BEGIN
+    IF NEW.discharge_date IS NULL THEN
+        UPDATE Beds SET status = 'Κατειλημμένη' WHERE id = NEW.bed_id;
+    END IF;
+END //
+DELIMITER ;
+
+DROP TRIGGER IF EXISTS auto_set_bed_available;
+DELIMITER //
+CREATE TRIGGER auto_set_bed_available
+AFTER UPDATE ON Hospitalization
+FOR EACH ROW
+BEGIN
+    -- Όταν προστίθεται discharge_date (έξοδος ασθενή)
+    IF OLD.discharge_date IS NULL AND NEW.discharge_date IS NOT NULL THEN
+        UPDATE Beds SET status = 'Διαθέσιμη' WHERE id = NEW.bed_id;
+    END IF;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- TRIGGER: auto_calculate_cost_on_insert
+-- Όταν δημιουργείται νοσηλεία, υπολογίζεται αυτόματα
+-- το αρχικό cost (basic_cost ή με υπέρβαση αν ήδη
+-- υπάρχει discharge_date στο INSERT).
+-- Single source of truth για το cost.
+-- -----------------------------------------------------
+DROP TRIGGER IF EXISTS auto_calculate_cost_on_insert;
+DELIMITER //
+CREATE TRIGGER auto_calculate_cost_on_insert
+BEFORE INSERT ON Hospitalization
+FOR EACH ROW
+BEGIN
+    IF NEW.discharge_date IS NOT NULL THEN
+        -- Ολοκληρωμένη νοσηλεία: basic + προσαύξηση υπέρβασης ΜΔΝ
+        SET NEW.total_cost = (
+            SELECT k.basic_cost
+                   + GREATEST(0, DATEDIFF(NEW.discharge_date, NEW.admission_date)
+                              - k.avg_duration_days) * 100.00
+            FROM KEN_Catalog k WHERE k.code = NEW.ken_code
+        );
+    ELSE
+        -- Ενεργή νοσηλεία: basic cost
+        SET NEW.total_cost = (
+            SELECT k.basic_cost FROM KEN_Catalog k WHERE k.code = NEW.ken_code
+        );
+    END IF;
+END //
+DELIMITER ;
+
+-- -----------------------------------------------------
+-- TRIGGER: auto_calculate_cost_on_discharge
+-- Όταν προστίθεται discharge_date σε ενεργή νοσηλεία
+-- (μέσω UPDATE), ξανα-υπολογίζεται το final cost.
+-- -----------------------------------------------------
+DROP TRIGGER IF EXISTS auto_calculate_cost_on_discharge;
+DELIMITER //
+CREATE TRIGGER auto_calculate_cost_on_discharge
+BEFORE UPDATE ON Hospitalization
+FOR EACH ROW
+BEGIN
+    IF OLD.discharge_date IS NULL AND NEW.discharge_date IS NOT NULL THEN
+        SET NEW.total_cost = (
+            SELECT k.basic_cost
+                   + GREATEST(0, DATEDIFF(NEW.discharge_date, NEW.admission_date)
+                              - k.avg_duration_days) * 100.00
+            FROM KEN_Catalog k WHERE k.code = NEW.ken_code
+        );
+    END IF;
+END //
+DELIMITER ;
+
+
+SET SQL_MODE=@OLD_SQL_MODE;
+SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
+SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;
+
+SET SQL_MODE=@OLD_SQL_MODE;
+SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
+SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;
+
+-- =====================================================
+-- Trigger: Ελάχιστη κάλυψη βάρδιας 3/6/2
+-- Εμποδίζει διαγραφή Shift_Assignment αν θα αφήσει
+-- τη βάρδια κάτω από το minimum (3 ιατροί / 6 νοσηλευτές / 2 διοικητικοί)
+-- =====================================================
+DROP TRIGGER IF EXISTS check_minimum_shift_staffing_on_delete;
+DELIMITER //
+CREATE TRIGGER check_minimum_shift_staffing_on_delete
+BEFORE DELETE ON Shift_Assignments
+FOR EACH ROW
+BEGIN
+    DECLARE doc_count  INT DEFAULT 0;
+    DECLARE nur_count  INT DEFAULT 0;
+    DECLARE adm_count  INT DEFAULT 0;
+    DECLARE total_remaining INT DEFAULT 0;
+
+    -- Bypass για bulk-delete ολόκληρης βάρδιας ή cascade από διαγραφή προσωπικού.
+    -- Ο server θέτει @bypass_shift_min=1 πριν από τέτοιες λειτουργίες.
+    IF @bypass_shift_min = 1 THEN
+        -- skip check
+        BEGIN END;
+    ELSE
+        SELECT COUNT(*) INTO total_remaining
+        FROM Shift_Assignments sa
+        WHERE sa.shift_id      = OLD.shift_id
+          AND sa.department_id = OLD.department_id
+          AND sa.staff_amka   <> OLD.staff_amka;
+
+        -- Αν δεν θα μείνει κανείς, επιτρέπουμε τη διαγραφή
+        -- (δεν είναι "ενεργή βάρδια κάτω από το minimum", είναι κατάργηση).
+        IF total_remaining > 0 THEN
+            SELECT
+                SUM(CASE WHEN s.staff_type = 'Doctor' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN s.staff_type = 'Nurse'  THEN 1 ELSE 0 END),
+                SUM(CASE WHEN s.staff_type = 'Admin'  THEN 1 ELSE 0 END)
+            INTO doc_count, nur_count, adm_count
+            FROM Shift_Assignments sa
+            JOIN Staff s ON sa.staff_amka = s.amka
+            WHERE sa.shift_id      = OLD.shift_id
+              AND sa.department_id = OLD.department_id
+              AND sa.staff_amka   <> OLD.staff_amka;
+
+            IF doc_count < 3 THEN
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Απαγόρευση: η αφαίρεση αφήνει λιγότερους από 3 ιατρούς στη βάρδια.';
+            END IF;
+            IF nur_count < 6 THEN
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Απαγόρευση: η αφαίρεση αφήνει λιγότερους από 6 νοσηλευτές στη βάρδια.';
+            END IF;
+            IF adm_count < 2 THEN
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Απαγόρευση: η αφαίρεση αφήνει λιγότερους από 2 διοικητικούς στη βάρδια.';
+            END IF;
+        END IF;
+    END IF;
+END //
+DELIMITER ;
 
 SET SQL_MODE=@OLD_SQL_MODE;
 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
