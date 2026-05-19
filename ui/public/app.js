@@ -1241,6 +1241,282 @@ async function initReviews() {
 }
 
 // ──────────────────────────────────────────────────────────────
+// CALENDAR — Πρόγραμμα Βαρδιών
+// ──────────────────────────────────────────────────────────────
+const SHIFT_TYPE_LABELS = {
+  Morning:   { letter: "Π", greek: "Πρωινή",    hours: "07:00-15:00", cls: "M" },
+  Afternoon: { letter: "Α", greek: "Απογευματινή", hours: "15:00-23:00", cls: "A" },
+  Night:     { letter: "Ν", greek: "Νυχτερινή", hours: "23:00-07:00", cls: "N" }
+};
+const SHIFT_TYPE_ORDER = ["Morning", "Afternoon", "Night"];
+const MONTH_NAMES_EL = [
+  "Ιανουάριος", "Φεβρουάριος", "Μάρτιος", "Απρίλιος", "Μάιος", "Ιούνιος",
+  "Ιούλιος", "Αύγουστος", "Σεπτέμβριος", "Οκτώβριος", "Νοέμβριος", "Δεκέμβριος"
+];
+const DOW_LABELS_EL = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"];
+
+let _calCurrentMonth = null;   // { year, month } 0-indexed
+let _calShiftsByDate = {};      // 'YYYY-MM-DD' → [shift, ...]
+let _calSelectedDate = null;
+let _calDeptFilter = "";
+
+function ymdLocal(d) {
+  // Format date as YYYY-MM-DD in local time (avoids UTC off-by-one).
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+async function initCalendar() {
+  const now = new Date();
+  _calCurrentMonth = { year: now.getFullYear(), month: now.getMonth() };
+
+  // Populate department filter
+  try {
+    const depts = await api("/api/departments");
+    const sel = document.getElementById("cal-dept-filter");
+    sel.innerHTML = '<option value="">— Όλα —</option>' +
+      depts.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join("");
+    sel.addEventListener("change", (e) => {
+      _calDeptFilter = e.target.value;
+      // Re-render calendar grid (uses cached shifts) and any open day panel
+      renderCalendarGrid();
+      if (_calSelectedDate) renderCalendarDayPanel(_calSelectedDate);
+    });
+  } catch (err) {
+    console.warn("Could not load departments for calendar:", err.message);
+  }
+
+  document.getElementById("cal-prev-btn").addEventListener("click", () => shiftMonth(-1));
+  document.getElementById("cal-next-btn").addEventListener("click", () => shiftMonth(1));
+  document.getElementById("cal-today-btn").addEventListener("click", () => {
+    const t = new Date();
+    _calCurrentMonth = { year: t.getFullYear(), month: t.getMonth() };
+    loadCalendarMonth();
+  });
+  document.getElementById("cal-refresh-btn").addEventListener("click", loadCalendarMonth);
+
+  await loadCalendarMonth();
+}
+
+function shiftMonth(delta) {
+  let { year, month } = _calCurrentMonth;
+  month += delta;
+  if (month < 0)  { month = 11; year -= 1; }
+  if (month > 11) { month = 0;  year += 1; }
+  _calCurrentMonth = { year, month };
+  loadCalendarMonth();
+}
+
+async function loadCalendarMonth() {
+  const { year, month } = _calCurrentMonth;
+  document.getElementById("cal-month-label").textContent = `${MONTH_NAMES_EL[month]} ${year}`;
+
+  // Fetch shifts spanning the full visible grid (may include trailing/leading days of adjacent months).
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const firstDow = (firstDay.getDay() + 6) % 7; // Mon=0
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(firstDay.getDate() - firstDow);
+  const gridEnd = new Date(gridStart);
+  gridEnd.setDate(gridStart.getDate() + 41); // 6 rows × 7 cols
+
+  const from = ymdLocal(gridStart);
+  const to = ymdLocal(gridEnd);
+
+  const grid = document.getElementById("cal-grid");
+  grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Φόρτωση...</div>';
+
+  try {
+    const rows = await api(`/api/shifts?from=${from}&to=${to}`);
+    _calShiftsByDate = {};
+    for (const r of rows) {
+      const date = (r.shift_date || "").slice(0, 10);
+      if (!_calShiftsByDate[date]) _calShiftsByDate[date] = [];
+      _calShiftsByDate[date].push(r);
+    }
+    renderCalendarGrid();
+
+    // If currently selected date is in view, refresh its panel too
+    if (_calSelectedDate) renderCalendarDayPanel(_calSelectedDate);
+  } catch (err) {
+    grid.innerHTML = `<div class="empty error-msg" style="grid-column:1/-1;">Σφάλμα: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderCalendarGrid() {
+  const { year, month } = _calCurrentMonth;
+  const grid = document.getElementById("cal-grid");
+  const todayStr = ymdLocal(new Date());
+
+  const firstDay = new Date(year, month, 1);
+  const firstDow = (firstDay.getDay() + 6) % 7; // Mon=0
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(firstDay.getDate() - firstDow);
+
+  let html = DOW_LABELS_EL.map((d) => `<div class="cal-dow">${d}</div>`).join("");
+
+  for (let i = 0; i < 42; i++) {
+    const cellDate = new Date(gridStart);
+    cellDate.setDate(gridStart.getDate() + i);
+    const dateStr = ymdLocal(cellDate);
+    const inMonth = cellDate.getMonth() === month;
+    const isWeekend = cellDate.getDay() === 0 || cellDate.getDay() === 6;
+    const shifts = _calShiftsByDate[dateStr] || [];
+
+    const classes = ["cal-cell"];
+    if (!inMonth) classes.push("cal-empty");
+    if (dateStr === todayStr) classes.push("cal-today");
+    if (dateStr === _calSelectedDate) classes.push("cal-selected");
+    if (isWeekend && inMonth) classes.push("cal-weekend");
+
+    const shiftRows = SHIFT_TYPE_ORDER.map((type) => {
+      const s = shifts.find((x) => x.shift_type === type);
+      if (!s) return "";
+      const info = SHIFT_TYPE_LABELS[type];
+      const docs = Number(s.doctors || 0);
+      const nur = Number(s.nurses || 0);
+      const adm = Number(s.admins || 0);
+      const incomplete = docs < 3 || nur < 6 || adm < 2;
+      return `<div class="cal-shift-row ${incomplete ? "cal-incomplete" : ""}">
+        <span class="cal-badge cal-badge-${info.cls}">${info.letter}</span>
+        <span class="cal-counts">${docs}/${nur}/${adm}</span>
+      </div>`;
+    }).join("");
+
+    html += `<div class="${classes.join(" ")}" data-date="${dateStr}" ${!inMonth ? "" : `tabindex="0"`}>
+      <div class="cal-date">${cellDate.getDate()}</div>
+      <div class="cal-shifts">${shiftRows}</div>
+    </div>`;
+  }
+
+  grid.innerHTML = html;
+  grid.querySelectorAll(".cal-cell:not(.cal-empty)").forEach((cell) => {
+    cell.addEventListener("click", () => selectCalendarDay(cell.dataset.date));
+  });
+}
+
+function selectCalendarDay(dateStr) {
+  _calSelectedDate = dateStr;
+  document.querySelectorAll(".cal-cell").forEach((c) => {
+    c.classList.toggle("cal-selected", c.dataset.date === dateStr);
+  });
+  renderCalendarDayPanel(dateStr);
+}
+
+async function renderCalendarDayPanel(dateStr) {
+  const panel = document.getElementById("cal-day-panel");
+  const label = document.getElementById("cal-day-label");
+  const list = document.getElementById("cal-day-shifts");
+  const detail = document.getElementById("cal-shift-detail");
+
+  panel.style.display = "block";
+  const d = new Date(dateStr + "T00:00:00");
+  const dow = DOW_LABELS_EL[(d.getDay() + 6) % 7];
+  label.textContent = `${dow} ${d.getDate()} ${MONTH_NAMES_EL[d.getMonth()]} ${d.getFullYear()}`;
+
+  const shifts = (_calShiftsByDate[dateStr] || [])
+    .slice()
+    .sort((a, b) => SHIFT_TYPE_ORDER.indexOf(a.shift_type) - SHIFT_TYPE_ORDER.indexOf(b.shift_type));
+
+  if (shifts.length === 0) {
+    list.innerHTML = '<div class="empty">Δεν υπάρχουν καταχωρημένες βάρδιες για αυτή την ημέρα.</div>';
+    detail.innerHTML = "";
+    return;
+  }
+
+  list.innerHTML = shifts.map((s) => {
+    const info = SHIFT_TYPE_LABELS[s.shift_type];
+    const docs = Number(s.doctors || 0);
+    const nur = Number(s.nurses || 0);
+    const adm = Number(s.admins || 0);
+    const pill = (label, n, min) =>
+      `<span class="cal-count-pill ${n >= min ? "cal-count-ok" : "cal-count-low"}">${label}: ${n}/${min}</span>`;
+    return `<div class="cal-day-shift-card cal-shift-${info.cls}" data-shift-id="${s.id}">
+      <div class="cal-day-shift-head">
+        <span class="cal-badge cal-badge-${info.cls}">${info.letter}</span>
+        <span class="cal-day-shift-title">${info.greek} <span class="muted">${info.hours}</span></span>
+        <div class="cal-day-shift-counts">
+          ${pill("Ιατροί", docs, 3)}
+          ${pill("Νοσηλευτές", nur, 6)}
+          ${pill("Διοικ.", adm, 2)}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  detail.innerHTML = '<div class="muted">Κλικ σε βάρδια για λεπτομέρειες προσωπικού.</div>';
+
+  list.querySelectorAll(".cal-day-shift-card").forEach((card) => {
+    card.addEventListener("click", () => loadCalendarShiftDetail(Number(card.dataset.shiftId)));
+  });
+}
+
+async function loadCalendarShiftDetail(shiftId) {
+  const detail = document.getElementById("cal-shift-detail");
+  detail.innerHTML = '<div class="muted">Φόρτωση...</div>';
+  try {
+    const data = await api(`/api/shifts/${shiftId}`);
+    const info = SHIFT_TYPE_LABELS[data.shift.shift_type];
+
+    let assignments = data.assignments || [];
+    const deptFilter = _calDeptFilter ? Number(_calDeptFilter) : null;
+    if (deptFilter) {
+      assignments = assignments.filter((a) => Number(a.department_id) === deptFilter);
+    }
+
+    if (assignments.length === 0) {
+      detail.innerHTML = `<div class="empty">Δεν υπάρχουν αναθέσεις${deptFilter ? " για το επιλεγμένο τμήμα" : ""}.</div>`;
+      return;
+    }
+
+    // Group assignments by department
+    const byDept = {};
+    for (const a of assignments) {
+      const key = a.department || `Τμήμα #${a.department_id}`;
+      if (!byDept[key]) byDept[key] = [];
+      byDept[key].push(a);
+    }
+
+    const deptHtml = Object.entries(byDept).sort((a, b) => a[0].localeCompare(b[0], "el")).map(([dept, rows]) => {
+      const docs = rows.filter((r) => r.staff_type === "Doctor");
+      const nur = rows.filter((r) => r.staff_type === "Nurse");
+      const adm = rows.filter((r) => r.staff_type === "Admin");
+      const renderRow = (r) => {
+        const sub = r.staff_type === "Doctor" ? `${r.specialty || ""} · ${r.doctor_rank || ""}`
+                  : r.staff_type === "Nurse"  ? (r.nurse_rank || "")
+                  : (r.admin_role || "");
+        return `<div class="cal-staff-row">
+          <span class="cal-staff-type t-${r.staff_type}">${r.staff_type}</span>
+          <strong>${escapeHtml(r.last_name + " " + r.first_name)}</strong>
+          <span class="muted">${escapeHtml(sub)}</span>
+        </div>`;
+      };
+      return `<div class="cal-dept-group">
+        <div class="cal-dept-group-title">${escapeHtml(dept)} <span class="muted">(${docs.length}/${nur.length}/${adm.length})</span></div>
+        ${[...docs, ...nur, ...adm].map(renderRow).join("")}
+      </div>`;
+    }).join("");
+
+    detail.innerHTML = `<div class="cal-day-shift-card cal-shift-${info.cls}">
+      <div class="cal-day-shift-head">
+        <span class="cal-badge cal-badge-${info.cls}">${info.letter}</span>
+        <span class="cal-day-shift-title">${info.greek} ${info.hours} <span class="muted">— Shift #${data.shift.id}</span></span>
+      </div>
+      ${deptHtml}
+    </div>`;
+  } catch (err) {
+    detail.innerHTML = `<div class="empty error-msg">Σφάλμα: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// Make loadShifts an alias so the existing shift-submit handler in initAdmin
+// refreshes the calendar after creating a new shift.
+async function loadShifts() {
+  if (_calCurrentMonth) return loadCalendarMonth();
+}
+
+// ──────────────────────────────────────────────────────────────
 // QUERIES Q1 - Q15
 // ──────────────────────────────────────────────────────────────
 let queryDefs = [];
@@ -1626,6 +1902,7 @@ async function bootstrap() {
   await initPrescriptions().catch((e) => console.error("prescriptions", e));
   await initTriage().catch((e) => console.error("triage", e));
   await initReviews().catch((e) => console.error("reviews", e));
+  await initCalendar().catch((e) => console.error("calendar", e));
   await initQueries().catch((e) => console.error("queries", e));
   initAdmin();
 }

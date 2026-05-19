@@ -627,9 +627,12 @@ RANK_RES = "'Ειδικευόμενος'"
 doctor_amkas = list(director_amkas)
 doctor_spec_map = dict(director_spec_map)
 
-# Senior A (40) — με ποικιλία ειδικοτήτων
+# Senior A (90) — με ποικιλία ειδικοτήτων
+# (αυξήθηκε από 40 ώστε το doctor-shift budget να φτάνει για 24/7 κάλυψη όλου του μήνα,
+#  και ειδικά για να υπάρχει ένας senior (Επιμελητής Α'/Διευθυντής) ανά dept-shift:
+#  90 Senior A + 15 Director = 105 seniors × 15 cap = 1575 senior-shifts ≥ 1350 dept-shifts/μήνα)
 senior_a_amkas = []
-for i in range(40):
+for i in range(90):
     amka = gen_amka()
     gender = 'male' if random.random() < 0.5 else 'female'
     fn = male_name() if gender == 'male' else female_name()
@@ -647,9 +650,10 @@ for i in range(40):
     doctor_amkas.append(amka)
     doctor_spec_map[amka] = spec
 
-# Senior B (45)
+# Senior B (75)
+# (αυξήθηκε από 45 για budget πλήρους μηνιαίας κάλυψης βαρδιών)
 senior_b_amkas = []
-for i in range(45):
+for i in range(75):
     amka = gen_amka()
     gender = 'male' if random.random() < 0.5 else 'female'
     fn = male_name() if gender == 'male' else female_name()
@@ -667,9 +671,11 @@ for i in range(45):
     doctor_amkas.append(amka)
     doctor_spec_map[amka] = spec
 
-# Residents (50)
+# Residents (115)
+# (αυξήθηκε από 50 για budget πλήρους μηνιαίας κάλυψης βαρδιών:
+#  4050 doctor-shifts/μήνα απαιτούνται, 275 docs × 15 cap = 4125 budget.)
 resident_amkas = []
-for i in range(50):
+for i in range(115):
     amka = gen_amka()
     gender = 'male' if random.random() < 0.5 else 'female'
     fn = male_name() if gender == 'male' else female_name()
@@ -789,7 +795,7 @@ w("")
 w("-- Nurses")
 nurse_amkas = []
 nurse_dept_map = {}
-for i in range(500):  # FIX: από 300→500 για επαρκή κάλυψη 6/βάρδια/τμήμα
+for i in range(600):  # FIX: 300→500→600 για κάλυψη όλου του μήνα (6/βάρδια/τμήμα × 30 days)
     amka = gen_amka()
     gender = 'male' if random.random() < 0.25 else 'female'  # bias θηλυκό για νοσηλευτές
     fn = male_name() if gender == 'male' else female_name()
@@ -818,7 +824,7 @@ w("")
 w("-- Admin Staff")
 admin_amkas = []
 admin_dept_map = {}  # amka -> dept_id
-for i in range(150):  # FIX: από 100→150 για επαρκή κάλυψη 2/βάρδια/τμήμα
+for i in range(225):  # FIX: 100→150→225 για κάλυψη όλου του μήνα (2/βάρδια/τμήμα × 30 days, με headroom)
     amka = gen_amka()
     gender = 'male' if random.random() < 0.4 else 'female'
     fn = male_name() if gender == 'male' else female_name()
@@ -892,7 +898,7 @@ w("")
 # ============================================================
 # SHIFTS & ASSIGNMENTS
 # ============================================================
-w("-- Shifts & Assignments (2025-07 + 2026-01 → 2026-05-10)")
+w("-- Shifts & Assignments (full-month coverage, 2023-01 → 2026-05-31)")
 
 sid_counter = 1
 monthly_counts = {}
@@ -946,12 +952,13 @@ for amka in doctor_amkas:
     for dept_id in compatible_depts(spec):
         doc_dept_map.setdefault(dept_id, []).append(amka)
 
-# FIX: Εξασφαλίζουμε min 15 γιατρούς ανά τμήμα
+# FIX: Εξασφαλίζουμε min 20 γιατρούς ανά τμήμα
+# (20 × 15 max/μήνα = 300 doc-shifts/τμήμα, ≥ 270 που απαιτούνται)
 # Αν λείπουν, προσθέτουμε οποιοδήποτε διαθέσιμο γιατρό
 for dept_id in dept_ids:
     current = set(doc_dept_map.get(dept_id, []))
-    if len(current) < 15:
-        needed = 15 - len(current)
+    if len(current) < 20:
+        needed = 20 - len(current)
         # Πρώτα δοκιμάζουμε γενικές ειδικότητες, μετά όλους
         extras = [a for a in doctor_amkas if a not in current]
         random.shuffle(extras)
@@ -959,27 +966,44 @@ for dept_id in dept_ids:
             doc_dept_map[dept_id].append(a)
             w(f"INSERT IGNORE INTO Doctor_has_Department (doctor_amka,department_id) VALUES ({q(a)},{dept_id});")
 
-# Βάρδιες: 15 πρώτες μέρες κάθε μήνα, 2023-2026
-# Δίνει 15 μέρες × 3 shifts × 41 μήνες = 1.845 shift days
-# Κάθε γιατρός: έως 15/μήνα × 41 = 615 βάρδιες (ρεαλιστικό)
+# Βάρδιες: όλες οι μέρες κάθε μήνα, 2023-2026 (πλήρες ημερολόγιο εφημεριών).
+# Με 275 γιατρούς × 15 max-shifts/μήνα = 4125 doctor-shifts budget έναντι
+# 4050 που απαιτούνται για πλήρη κάλυψη (3 docs × 3 shifts × 15 depts × 30
+# days). Budget ~102% → όλες οι (date × stype) τιμές παράγουν Shifts row
+# και τα περισσότερα τμήματα γεμίζουν.
+#
+# Επιπλέον shuffle:
+#  - dept_ids ανά shift slot → δίκαιη κατανομή budget στα τμήματα.
+#  - SHIFT_TYPES ανά ημέρα → αποφεύγει το Morning-drains-budget pattern
+#    που εμφανιζόταν τα τέλη του μήνα.
 shift_periods = []
 from calendar import monthrange as _mr
 for y in [2023, 2024, 2025]:
     for mo in range(1, 13):
-        shift_periods.append((date(y, mo, 1), date(y, mo, 15)))
-for mo in range(1, 5):
-    shift_periods.append((date(2026, mo, 1), date(2026, mo, 15)))
-shift_periods.append((date(2026, 5, 1), date(2026, 5, 10)))
+        last_day = _mr(y, mo)[1]
+        shift_periods.append((date(y, mo, 1), date(y, mo, last_day)))
+for mo in range(1, 6):
+    last_day = _mr(2026, mo)[1]
+    shift_periods.append((date(2026, mo, 1), date(2026, mo, last_day)))
 
 for period_start, period_end in shift_periods:
     current = period_start
     while current <= period_end:
-        for stype in SHIFT_TYPES:
-            w(f"INSERT INTO Shifts (id,shift_date,shift_type) VALUES ({sid_counter},{sql_date(current)},{q(stype)});")
+        # Shuffle stype order ανά ημέρα ώστε καμία βάρδια να μην προτεραιοποιείται
+        # συστηματικά (αλλιώς το Morning απορροφούσε το υπολειπόμενο budget στα
+        # τέλη του μήνα και τα Afternoon/Night έμεναν κενά).
+        shuffled_stypes = list(SHIFT_TYPES)
+        random.shuffle(shuffled_stypes)
+        for stype in shuffled_stypes:
             cur_sid = sid_counter
-            sid_counter += 1
+            shift_row_emitted = False
 
-            for dept_id in dept_ids:
+            # Shuffle dept order ανά shift slot ώστε το doctor budget να μη
+            # καταναλώνεται πάντα από τα πρώτα τμήματα του dept_ids.
+            shuffled_depts = list(dept_ids)
+            random.shuffle(shuffled_depts)
+
+            for dept_id in shuffled_depts:
                 # FIX: Γιατροί μόνο αν ανήκουν στο τμήμα (Doctor_has_Department)
                 dept_doctors = doc_dept_map.get(dept_id, [])
 
@@ -1021,6 +1045,13 @@ for period_start, period_end in shift_periods:
                 # (3 γιατροί, 6 νοσηλευτές, 2 διοικητικοί)
                 if len(assigned_docs) < 3 or len(assigned_nurses) < 6 or len(assigned_admins) < 2:
                     continue  # skip αυτό το dept για αυτή τη βάρδια
+
+                # Lazy-emit Shifts row μόνο όταν γεμίζει τουλάχιστον ένα dept,
+                # ώστε να αποφύγουμε άδειες Shifts σε ημέρες με εξαντλημένο budget.
+                if not shift_row_emitted:
+                    w(f"INSERT INTO Shifts (id,shift_date,shift_type) VALUES ({sid_counter},{sql_date(current)},{q(stype)});")
+                    sid_counter += 1
+                    shift_row_emitted = True
 
                 for a in assigned_docs:
                     do_assign(cur_sid, a, dept_id, 'Doctor', current, stype)

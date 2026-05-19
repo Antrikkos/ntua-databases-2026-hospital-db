@@ -619,6 +619,7 @@ module.exports = function registerAdminRoutes(app) {
     try {
       const dateFrom = req.query.from || null;
       const dateTo = req.query.to || null;
+      const limit = Math.min(parseInt(req.query.limit || "300", 10), 1000);
       const rows = await query(
         `
         SELECT
@@ -634,7 +635,7 @@ module.exports = function registerAdminRoutes(app) {
           AND (:dateTo IS NULL OR s.shift_date <= :dateTo)
         GROUP BY s.id, s.shift_date, s.shift_type
         ORDER BY s.shift_date DESC, FIELD(s.shift_type, 'Morning', 'Afternoon', 'Night')
-        LIMIT 100
+        LIMIT ${limit}
         `,
         { dateFrom, dateTo }
       );
