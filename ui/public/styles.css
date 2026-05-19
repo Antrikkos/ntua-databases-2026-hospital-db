@@ -16,9 +16,28 @@ h1, h2, h3, h4, h5, h6, p, label, span, strong, th, td {
 }
 
 .app-header {
-  background: #7d0000; 
+  background: #7d0000;
   color: #fff;
   padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.app-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-logo {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #fff;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
 }
 
 .app-header h1 {
