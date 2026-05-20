@@ -103,8 +103,8 @@ Each of the 15 queries lives in its own file under `sql/`:
 mysql -u root -t --default-character-set=utf8mb4 hygeiopolis_db < sql\Q07.sql
 ```
 
-`Q04.sql` and `Q06.sql` contain two `EXPLAIN ANALYZE` blocks each (baseline
-plus a `FORCE INDEX` variant) so the index-comparison output can be captured
+`Q04.sql` and `Q06.sql` contain two `EXPLAIN ANALYZE` blocks each (baseline,
+a `FORCE INDEX` and an `IGNORE INDEX` variant) so the index-comparison output can be captured
 for the report.
 
 ## Running the UI (optional)
