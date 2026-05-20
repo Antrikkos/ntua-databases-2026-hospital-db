@@ -985,6 +985,21 @@ app.post("/api/queries/:id/run", async (req, res) => {
   }
 });
 
+app.post("/api/queries/:id/explain", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const def = queryLibrary[id];
+    if (!def) return res.status(404).json({ error: "Unknown query id." });
+    const params = normalizeQueryParams(id, req.body || {});
+    const rows = await query(`EXPLAIN ANALYZE ${def.executableSql.trim()}`, params);
+    const planText = rows.length > 0 ? Object.values(rows[0])[0] : "(no plan returned)";
+    res.json({ queryId: id, plan: planText });
+  } catch (error) {
+    const msg = error && error.sqlMessage ? error.sqlMessage : error.message;
+    res.status(400).json({ error: msg });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // Generic error handler
 // ─────────────────────────────────────────────────────────────

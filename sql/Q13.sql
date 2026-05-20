@@ -1,10 +1,7 @@
 -- ============================================================
--- Q13.sql  (ΔΙΟΡΘΩΜΕΝΟ)
--- Ιεραρχία εποπτείας κάθε ιατρού έως τον Διευθυντή
--- ΔΙΟΡΘΩΣΗ: ORDER BY με backtick column aliases (MySQL/MariaDB δεν δέχεται
---           string literals σε ORDER BY — τα double quotes ήταν string literals
---           και αγνοούνταν σιωπηλά)
+-- Q13.sql  
 -- ============================================================
+
 WITH RECURSIVE SupervisionHierarchy AS (
     SELECT 
         staff_amka AS doctor_amka, 

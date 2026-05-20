@@ -1562,6 +1562,40 @@ async function initQueries() {
       document.getElementById("query-results").innerHTML = "";
     }
   });
+
+  // ── EXPLAIN ANALYZE — εμφανίζεται μόνο για Q04a/b/c και Q06a/b/c ──
+  const EXPLAIN_QUERIES = new Set(["Q04a", "Q04b", "Q04c", "Q06a", "Q06b", "Q06c"]);
+  const explainBtn = document.getElementById("explain-query-btn");
+  const explainBox = document.getElementById("explain-output");
+
+  const updateExplainBtn = () => {
+    const id = select.value;
+    explainBtn.style.display = EXPLAIN_QUERIES.has(id) ? "inline-block" : "none";
+    if (!EXPLAIN_QUERIES.has(id)) explainBox.style.display = "none";
+  };
+  select.addEventListener("change", updateExplainBtn);
+  updateExplainBtn();
+
+  explainBtn.addEventListener("click", async () => {
+    const def = queryDefs.find((q) => q.id === select.value);
+    explainBtn.disabled = true;
+    explainBtn.textContent = "⏳ Running EXPLAIN...";
+    explainBox.style.display = "block";
+    explainBox.textContent = "Analyzing...";
+    const payload = {};
+    document.querySelectorAll("#query-params input").forEach((inp) => {
+      payload[inp.name] = inp.type === "number" && inp.value ? Number(inp.value) : inp.value;
+    });
+    try {
+      const r = await api(`/api/queries/${def.id}/explain`, { method: "POST", body: JSON.stringify(payload) });
+      explainBox.textContent = r.plan;
+    } catch (err) {
+      explainBox.textContent = `Error: ${err.message}`;
+    } finally {
+      explainBtn.disabled = false;
+      explainBtn.textContent = "⚡ EXPLAIN ANALYZE";
+    }
+  });
 }
 
 function renderQueryParams(def) {

@@ -117,24 +117,48 @@ const queryLibrary = {
   },
 
   Q04b: {
-    title: "Μ.Ο. αξιολογήσεων συγκεκριμένου ιατρού (medical care + overall)",
+    title: "Μ.Ο. αξιολογήσεων ιατρού — FORCE INDEX (Εκδοχή Β)",
     sqlFile: path.join(SQL_DIR, "Q04b.sql"),
-    notes: "Επίλεξε πραγματικό ΑΜΚΑ ιατρού από τη βάση. Στο sql/Q4.sql υπάρχει η EXPLAIN ANALYZE έκδοση + FORCE INDEX.",
+    notes: "Αναγκάζει τον optimizer να χρησιμοποιήσει fk_ed_doctor_idx. Συγκρίνετε plan/χρόνο με Q04a.",
     params: [
       { name: "doctorAmka", label: "ΑΜΚΑ Ιατρού", type: "text", defaultValue: "" }
     ],
     executableSql: `
       SELECT
         d.staff_amka,
-        s.last_name,
-        AVG(ed.medical_care) AS Avg_Medical_Care,
-        AVG(eh.overall_experience) AS Avg_Overall_Experience
+        CONCAT(s.first_name, ' ', s.last_name) AS Doctor_Name,
+        AVG(ed.medical_care)                   AS Avg_Medical_Care,
+        AVG(eh.overall_experience)             AS Avg_Overall_Experience
       FROM Doctors d
       JOIN Staff s ON d.staff_amka = s.amka
-      JOIN Evaluation_Doctor ed ON d.staff_amka = ed.doctor_amka
+      JOIN Evaluation_Doctor ed FORCE INDEX (fk_ed_doctor_idx)
+           ON d.staff_amka = ed.doctor_amka
       JOIN Evaluation_Hospitalization eh ON ed.hospitalization_id = eh.hospitalization_id
       WHERE d.staff_amka = :doctorAmka
-      GROUP BY d.staff_amka, s.last_name
+      GROUP BY d.staff_amka, s.first_name, s.last_name
+    `
+  },
+
+  Q04c: {
+    title: "Μ.Ο. αξιολογήσεων ιατρού — IGNORE INDEX (Εκδοχή Γ, χωρίς index)",
+    sqlFile: path.join(SQL_DIR, "Q04c.sql"),
+    notes: "⚠ Απαγορεύει το fk_ed_doctor_idx — full table scan. Συγκρίνετε cost/χρόνο με Q04a για να φανεί η αξία του index.",
+    params: [
+      { name: "doctorAmka", label: "ΑΜΚΑ Ιατρού", type: "text", defaultValue: "" }
+    ],
+    executableSql: `
+      SELECT
+        d.staff_amka,
+        CONCAT(s.first_name, ' ', s.last_name) AS Doctor_Name,
+        AVG(ed.medical_care)                   AS Avg_Medical_Care,
+        AVG(eh.overall_experience)             AS Avg_Overall_Experience
+      FROM Doctors d
+      JOIN Staff s ON d.staff_amka = s.amka
+      JOIN Evaluation_Doctor ed IGNORE INDEX (fk_ed_doctor_idx)
+           ON d.staff_amka = ed.doctor_amka
+      JOIN Evaluation_Hospitalization eh ON ed.hospitalization_id = eh.hospitalization_id
+      WHERE d.staff_amka = :doctorAmka
+      GROUP BY d.staff_amka, s.first_name, s.last_name
     `
   },
 
@@ -184,22 +208,45 @@ const queryLibrary = {
   },
 
   Q06b: {
-    title: "Ιστορικό νοσηλειών συγκεκριμένου ασθενή (+ μέσος όρος αξιολόγησης)",
+    title: "Ιστορικό νοσηλειών ασθενή — FORCE INDEX (Εκδοχή Β)",
     sqlFile: path.join(SQL_DIR, "Q06b.sql"),
-    notes: "Επίλεξε πραγματικό ΑΜΚΑ ασθενή. Στο sql/Q6.sql υπάρχει η EXPLAIN ANALYZE έκδοση + FORCE INDEX.",
+    notes: "Αναγκάζει χρήση fk_hospitalization_patient_idx. Συγκρίνετε plan/χρόνο με Q06a.",
     params: [
       { name: "patientAmka", label: "ΑΜΚΑ Ασθενή", type: "text", defaultValue: "" }
     ],
     executableSql: `
       SELECT
         h.id AS Hospitalization_ID,
-        h.admission_date,
-        h.discharge_date,
+        h.admission_date, h.discharge_date,
         icd_adm.description AS Admission_Diagnosis,
         icd_dis.description AS Discharge_Diagnosis,
         h.total_cost,
-        (eh.nursing_care + eh.cleanliness + eh.food + eh.overall_experience) / 4.0 AS Avg_Hospitalization_Rating
-      FROM Hospitalization h
+        (eh.nursing_care + eh.cleanliness + eh.food + eh.overall_experience) / 4.0 AS Avg_Rating
+      FROM Hospitalization h FORCE INDEX (fk_hospitalization_patient_idx)
+      LEFT JOIN ICD10_Catalog icd_adm ON h.admission_diagnosis_icd10 = icd_adm.code
+      LEFT JOIN ICD10_Catalog icd_dis ON h.discharge_diagnosis_icd10 = icd_dis.code
+      LEFT JOIN Evaluation_Hospitalization eh ON h.id = eh.hospitalization_id
+      WHERE h.patient_amka = :patientAmka
+      ORDER BY h.admission_date DESC
+    `
+  },
+
+  Q06c: {
+    title: "Ιστορικό νοσηλειών ασθενή — IGNORE INDEX (Εκδοχή Γ, χωρίς index)",
+    sqlFile: path.join(SQL_DIR, "Q06c.sql"),
+    notes: "⚠ Απαγορεύει το fk_hospitalization_patient_idx — full table scan. Συγκρίνετε cost/χρόνο με Q06a για να φανεί η αξία του index.",
+    params: [
+      { name: "patientAmka", label: "ΑΜΚΑ Ασθενή", type: "text", defaultValue: "" }
+    ],
+    executableSql: `
+      SELECT
+        h.id AS Hospitalization_ID,
+        h.admission_date, h.discharge_date,
+        icd_adm.description AS Admission_Diagnosis,
+        icd_dis.description AS Discharge_Diagnosis,
+        h.total_cost,
+        (eh.nursing_care + eh.cleanliness + eh.food + eh.overall_experience) / 4.0 AS Avg_Rating
+      FROM Hospitalization h IGNORE INDEX (fk_hospitalization_patient_idx)
       LEFT JOIN ICD10_Catalog icd_adm ON h.admission_diagnosis_icd10 = icd_adm.code
       LEFT JOIN ICD10_Catalog icd_dis ON h.discharge_diagnosis_icd10 = icd_dis.code
       LEFT JOIN Evaluation_Hospitalization eh ON h.id = eh.hospitalization_id
@@ -451,10 +498,11 @@ const queryLibrary = {
     `
   },
 
-  Q15: {
-    title: "Triage: κατανομή, μέσος χρόνος αναμονής, ποσοστό νοσηλείας",
-    sqlFile: path.join(SQL_DIR, "Q15.sql"),
+  Q15a: {
+    title: "Q15 Μέρος Α — Triage: σύνοψη ανά επίπεδο επείγοντος (5 γραμμές)",
+    sqlFile: path.join(SQL_DIR, "Q15a.sql"),
     params: [],
+    notes: "Μέρος Α: μία γραμμή ανά urgency level (1-5). Για αναλυτική κατανομή ανά τμήμα επιλέξτε Q15b.",
     executableSql: `
       WITH TriageMatched AS (
         SELECT
@@ -498,6 +546,40 @@ const queryLibrary = {
       FROM DeptNames
       GROUP BY urgency_level
       ORDER BY urgency_level
+    `
+  },
+
+  Q15b: {
+    title: "Q15 Μέρος Β — Triage: αναλυτικά ανά επίπεδο × τμήμα παραπομπής",
+    sqlFile: path.join(SQL_DIR, "Q15b.sql"),
+    params: [],
+    notes: "Μέρος Β: αναλυτική κατανομή ανά urgency level × τμήμα. '— Αποχώρησε —' = δεν νοσηλεύτηκε.",
+    executableSql: `
+      WITH TriageMatched AS (
+        SELECT
+          t.id, t.urgency_level, t.arrival_time,
+          MIN(h.admission_date) AS admission_date,
+          MIN(h.department_id)  AS dept_id
+        FROM Triage_Records t
+        LEFT JOIN Hospitalization h
+          ON  t.patient_amka   = h.patient_amka
+          AND h.admission_date >= t.arrival_time
+          AND h.admission_date  < DATE_ADD(t.arrival_time, INTERVAL 24 HOUR)
+        GROUP BY t.id, t.urgency_level, t.arrival_time
+      )
+      SELECT
+        tm.urgency_level                             AS Urgency_Level,
+        COALESCE(d.name, '— Αποχώρησε —')          AS Referred_Department,
+        COUNT(*)                                     AS Cases,
+        ROUND(AVG(
+          CASE WHEN tm.dept_id IS NOT NULL
+               THEN TIMESTAMPDIFF(MINUTE, tm.arrival_time, tm.admission_date)
+          END
+        ), 0)                                        AS Avg_Wait_Min
+      FROM TriageMatched tm
+      LEFT JOIN Departments d ON tm.dept_id = d.id
+      GROUP BY tm.urgency_level, d.name
+      ORDER BY tm.urgency_level, Cases DESC
     `
   }
 };
