@@ -100,7 +100,7 @@ EMA), then `load.sql` which references all of them.
 Each of the 15 queries lives in its own file under `sql/`:
 
 ```cmd
-mysql -u root hygeiopolis_db < sql\Q07.sql
+mysql -u root -t --default-character-set=utf8mb4 hygeiopolis_db < sql\Q07.sql
 ```
 
 `Q04.sql` and `Q06.sql` contain two `EXPLAIN ANALYZE` blocks each (baseline
