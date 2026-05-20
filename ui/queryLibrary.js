@@ -28,20 +28,25 @@ const queryLibrary = {
     sqlFile: path.join(SQL_DIR, "Q01.sql"),
     params: [],
     executableSql: `
-      SELECT
-        d.name AS Department,
-        YEAR(h.admission_date) AS Admission_Year,
-        h.ken_code AS KEN_Code,
-        SUM(k.basic_cost) AS Total_Base_Revenue,
-        SUM(GREATEST(0, h.total_cost - k.basic_cost)) AS Total_Extra_Revenue,
-        p.insurance_provider AS Insurance_Provider,
-        COUNT(h.id) AS Total_Hospitalizations
+      SELECT 
+          d.name                                         AS Department,
+          YEAR(h.admission_date)                         AS Admission_Year,
+          h.ken_code                                     AS KEN_Code,
+          SUM(k.basic_cost)                              AS Total_Base_Revenue,
+          SUM(GREATEST(0, h.total_cost - k.basic_cost))  AS Total_Extra_Revenue,
+          p.insurance_provider                           AS Insurance_Provider,
+          COUNT(h.id)                                    AS Total_Hospitalizations
       FROM Hospitalization h
       JOIN Departments d ON h.department_id = d.id
-      JOIN KEN_Catalog k ON h.ken_code = k.code
-      JOIN Patients p ON h.patient_amka = p.amka
-      GROUP BY d.name, YEAR(h.admission_date), h.ken_code, p.insurance_provider
-      ORDER BY Department, Admission_Year, KEN_Code
+      JOIN KEN_Catalog  k ON h.ken_code     = k.code
+      JOIN Patients     p ON h.patient_amka = p.amka
+      WHERE h.discharge_date IS NOT NULL          -- μόνο ολοκληρωμένες
+      GROUP BY 
+          d.name,
+          YEAR(h.admission_date),
+          h.ken_code,
+          p.insurance_provider
+      ORDER BY Admission_Year ASC, Department ASC, KEN_Code ASC;
     `
   },
 
