@@ -60,8 +60,7 @@ The script prompts for MySQL username, database name (default
 7-9. Loads the reference catalogs
 10. Loads the fixture data
 
-The bulk load step is intentionally slow (shift assignments alone produce
-~277k rows, each validated through several triggers) - expect the final step
+The bulk load step is intentionally slow (as each insert is validated through several triggers) - expect the final step
 to take a few minutes.
 
 ### Option B: run the steps individually
