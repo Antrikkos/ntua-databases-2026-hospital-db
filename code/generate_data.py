@@ -184,6 +184,46 @@ def realistic_weight_height(age, gender):
 out = []
 def w(line): out.append(line)
 
+# Deferred buffers: collect Staff + Doctors rows separately so they can be
+# bulk-inserted in two passes (all Staff first, then all Doctors).
+# FOREIGN_KEY_CHECKS=0 allows this reordering safely.
+_staff_buf   = []   # Staff rows for doctors/nurses/admin
+_doctors_buf = []   # Doctors rows
+_nurses_buf  = []   # Nurses rows
+_admin_buf   = []   # Admin_Staff rows
+
+def wstaff(row):   _staff_buf.append(row)
+def wdoc(row):     _doctors_buf.append(row)
+def wnurse(row):   _nurses_buf.append(row)
+def wadmin(row):   _admin_buf.append(row)
+
+def flush_staff_tables():
+    """Write Staff, Doctors, Nurses, Admin_Staff as separate bulk blocks."""
+    if _staff_buf:
+        out.append("-- Staff (all types together for bulk insert)")
+        pfx = "INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES"
+        out.append(pfx)
+        out.append(",\n".join(_staff_buf) + ";")
+        out.append("")
+    if _doctors_buf:
+        out.append("-- Doctors")
+        pfx = "INSERT INTO Doctors (staff_amka,license_number,specialty,`rank`,supervisor_amka) VALUES"
+        out.append(pfx)
+        out.append(",\n".join(_doctors_buf) + ";")
+        out.append("")
+    if _nurses_buf:
+        out.append("-- Nurses")
+        pfx = "INSERT INTO Nurses (staff_amka,`rank`,department_id) VALUES"
+        out.append(pfx)
+        out.append(",\n".join(_nurses_buf) + ";")
+        out.append("")
+    if _admin_buf:
+        out.append("-- Admin_Staff")
+        pfx = "INSERT INTO Admin_Staff (staff_amka,role,office,department_id) VALUES"
+        out.append(pfx)
+        out.append(",\n".join(_admin_buf) + ";")
+        out.append("")
+
 def q(val):
     if val is None: return 'NULL'
     return "'" + str(val).replace("'", "''") + "'"
@@ -543,6 +583,8 @@ w("-- Παράχθηκε από generate_data.py (V3 — Ρεαλιστικά δ
 w("-- ============================================================")
 w("USE `hygeiopolis_db`;")
 w("SET FOREIGN_KEY_CHECKS=0;")
+w("SET UNIQUE_CHECKS=0;")
+w("SET autocommit=0;")
 w("SET SQL_MODE='';")
 w("SET NAMES 'utf8mb4';")
 w("")
@@ -612,8 +654,8 @@ for i, (dept_name, dept_spec) in enumerate(DEPT_INFO, 1):
     earliest_hire = date(2026 - (age - 22), 1, 1)
     latest_hire   = date(2018, 12, 31)
     hire = random_date(max(earliest_hire, date(1995, 1, 1)), latest_hire)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor');")
-    w(f"INSERT INTO Doctors (staff_amka,license_number,specialty,`rank`,supervisor_amka) VALUES ({q(amka)},{q('LIC1'+str(i).zfill(4))},{q(dept_spec)},'Διευθυντής',NULL);")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor')")
+    wdoc(f"({q(amka)},{q('LIC1'+str(i).zfill(4))},{q(dept_spec)},'Διευθυντής',NULL)")
     director_amkas.append(amka)
     director_dept_map[i] = amka
     director_spec_map[amka] = dept_spec
@@ -644,8 +686,8 @@ for i in range(90):
     hire = random_date(max(earliest_hire, date(2005, 1, 1)), date(2020, 12, 31))
     spec = random.choice(ALL_SPECIALTIES)
     sup  = random.choice(director_amkas)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor');")
-    w(f"INSERT INTO Doctors (staff_amka,license_number,specialty,`rank`,supervisor_amka) VALUES ({q(amka)},{q('LIC2'+str(i).zfill(4))},{q(spec)},{RANK_A},{q(sup)});")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor')")
+    wdoc(f"({q(amka)},{q('LIC2'+str(i).zfill(4))},{q(spec)},{RANK_A},{q(sup)})")
     senior_a_amkas.append(amka)
     doctor_amkas.append(amka)
     doctor_spec_map[amka] = spec
@@ -665,8 +707,8 @@ for i in range(75):
     hire = random_date(max(earliest_hire, date(2010, 1, 1)), date(2023, 12, 31))
     spec = random.choice(ALL_SPECIALTIES)
     sup  = random.choice(director_amkas + senior_a_amkas)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor');")
-    w(f"INSERT INTO Doctors (staff_amka,license_number,specialty,`rank`,supervisor_amka) VALUES ({q(amka)},{q('LIC3'+str(i).zfill(4))},{q(spec)},{RANK_B},{q(sup)});")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor')")
+    wdoc(f"({q(amka)},{q('LIC3'+str(i).zfill(4))},{q(spec)},{RANK_B},{q(sup)})")
     senior_b_amkas.append(amka)
     doctor_amkas.append(amka)
     doctor_spec_map[amka] = spec
@@ -687,8 +729,8 @@ for i in range(115):
     hire = random_date(max(earliest_hire, date(2018, 1, 1)), date(2024, 12, 31))
     spec = random.choice(ALL_SPECIALTIES)
     sup  = random.choice(senior_a_amkas + senior_b_amkas)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor');")
-    w(f"INSERT INTO Doctors (staff_amka,license_number,specialty,`rank`,supervisor_amka) VALUES ({q(amka)},{q('LIC4'+str(i).zfill(4))},{q(spec)},{q('Ειδικευόμενος')},{q(sup)});")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor')")
+    wdoc(f"({q(amka)},{q('LIC4'+str(i).zfill(4))},{q(spec)},{q('Ειδικευόμενος')},{q(sup)})")
     resident_amkas.append(amka)
     doctor_amkas.append(amka)
     doctor_spec_map[amka] = spec
@@ -706,8 +748,8 @@ for i in range(15):
     earliest_hire = date(2026 - (age - 24), 1, 1)
     hire = random_date(max(earliest_hire, date(2020, 1, 1)), date(2024, 12, 31))
     sup  = random.choice(senior_a_amkas + senior_b_amkas)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor');")
-    w(f"INSERT INTO Doctors (staff_amka,license_number,specialty,`rank`,supervisor_amka) VALUES ({q(amka)},{q('LIC5'+str(i).zfill(4))},'Χειρουργική','Ειδικευόμενος',{q(sup)});")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Doctor')")
+    wdoc(f"({q(amka)},{q('LIC5'+str(i).zfill(4))},'Χειρουργική','Ειδικευόμενος',{q(sup)})")
     young_surgeon_amkas.append(amka)
     doctor_amkas.append(amka)
     resident_amkas.append(amka)
@@ -812,8 +854,8 @@ for i in range(600):  # FIX: 300→500→600 για κάλυψη όλου του
         rank = random.choice(ICU_NURSE_RANKS)
     else:
         rank = random.choice(NURSE_RANKS)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Nurse');")
-    w(f"INSERT INTO Nurses (staff_amka,`rank`,department_id) VALUES ({q(amka)},{q(rank)},{dept});")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Nurse')")
+    wnurse(f"({q(amka)},{q(rank)},{dept})")
     nurse_amkas.append(amka)
     nurse_dept_map[amka] = dept
 w("")
@@ -837,11 +879,14 @@ for i in range(225):  # FIX: 100→150→225 για κάλυψη όλου του
     role = random.choice(ADMIN_ROLES)
     office = f"Γραφείο {random.randint(1, 50)}"
     dept = random.choice(dept_ids)
-    w(f"INSERT INTO Staff (amka,first_name,last_name,age,email,phone,hire_date,staff_type) VALUES ({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Admin');")
-    w(f"INSERT INTO Admin_Staff (staff_amka,role,office,department_id) VALUES ({q(amka)},{q(role)},{q(office)},{dept});")
+    wstaff(f"({q(amka)},{q(fn)},{q(ln)},{age},{q(email)},{q(phone)},{sql_date(hire)},'Admin')")
+    wadmin(f"({q(amka)},{q(role)},{q(office)},{dept})")
     admin_amkas.append(amka)
     admin_dept_map[amka] = dept
 w("")
+
+# All Staff/Doctors/Nurses/Admin are buffered — flush as bulk INSERTs now
+flush_staff_tables()
 
 # ============================================================
 # PATIENTS — Ρεαλιστικά
@@ -1455,7 +1500,10 @@ for amka in random.sample(doctor_amkas, min(30, len(doctor_amkas))):
 w("")
 w("")
 
+w("COMMIT;")
 w("SET FOREIGN_KEY_CHECKS=1;")
+w("SET UNIQUE_CHECKS=1;")
+w("SET autocommit=1;")
 w("")
 w("-- ============================================================")
 w("-- ΤΕΛΟΣ load.sql")
@@ -1464,6 +1512,71 @@ w("-- ============================================================")
 # ============================================================
 # WRITE OUTPUT
 # ============================================================
+
+# ── Optimization: merge consecutive same-table single-row INSERTs ──
+# Converts N × "INSERT INTO T (...) VALUES (x);"
+# into 1 × "INSERT INTO T (...) VALUES (x),(y),(z),...;"
+# Reduces 230k statements to ~2.3k (batch=100). Dramatically faster
+# because MariaDB amortises parsing, index locking, and disk I/O.
+import re as _re
+
+def _merge_inserts(lines, batch=100):
+    """
+    Merge consecutive single-row INSERTs for the same table/columns
+    into multi-row INSERT ... VALUES (...),(...),...;
+    Handles both:
+      INSERT INTO T (cols) VALUES (row);
+      INSERT INTO T (cols) VALUES\n(row);    ← generator style
+    """
+    merged   = []
+    buf_pfx  = None   # "INSERT [IGNORE] INTO tbl (cols) VALUES"
+    buf_vals = []
+
+    # normalise: join "VALUES\n(row);" into "VALUES (row);"
+    joined = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if (line.rstrip().upper().endswith('VALUES') and
+                i + 1 < len(lines) and lines[i+1].lstrip().startswith('(')):
+            joined.append(line.rstrip() + ' ' + lines[i+1].lstrip())
+            i += 2
+        else:
+            joined.append(line)
+            i += 1
+
+    _pat = _re.compile(
+        r'^(INSERT(?:\s+IGNORE)?\s+INTO\s+\w+(?:\s*\([^)]*\))?\s+VALUES)\s+(\(.*\));$',
+        _re.IGNORECASE | _re.DOTALL
+    )
+
+    def flush():
+        if buf_vals:
+            merged.append(buf_pfx + "\n" + ",\n".join(buf_vals) + ";")
+
+    for line in joined:
+        m = _pat.match(line.rstrip())
+        if m:
+            pfx, val = m.group(1), m.group(2)
+            if pfx == buf_pfx:
+                buf_vals.append(val)
+                if len(buf_vals) >= batch:
+                    flush()
+                    buf_vals = []
+            else:
+                flush()
+                buf_pfx  = pfx
+                buf_vals = [val]
+        else:
+            flush()
+            buf_pfx  = None
+            buf_vals = []
+            merged.append(line)
+    flush()
+    return merged
+
+out = _merge_inserts(out, batch=100)
+
 _out_path = os.path.join(OUTDIR, 'load.sql')
 with open(_out_path, 'w', encoding='utf-8') as f:
     f.write('\n'.join(out))

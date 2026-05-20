@@ -21,7 +21,7 @@ IF "%DB_PASS%"=="" (
 echo.
 for %%f in (sql\Q*.sql) do (
     echo Running %%f -^> sql\%%~nf_out.txt
-    mysql %MYSQL_AUTH% %DB_NAME% < "%%f" > "sql\%%~nf_out.txt" 2>&1
+    mysql %MYSQL_AUTH% -t --default-character-set=utf8mb4 %DB_NAME% < "%%f" > "sql\%%~nf_out.txt" 2>&1
 )
 
 echo.
