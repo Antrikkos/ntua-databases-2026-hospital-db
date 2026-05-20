@@ -29,6 +29,11 @@ IF "%DB_PASS%"=="" (
     SET MYSQL_AUTH=-u %DB_USER% "--password=%DB_PASS%" --default-character-set=utf8mb4
 )
 
+REM Performance flags for bulk loading:
+REM   --max_allowed_packet: allows large multi-row INSERT statements
+REM   --net_buffer_length:  larger read buffer, fewer round-trips
+SET MYSQL_PERF=--max_allowed_packet=256M --net_buffer_length=1M
+
 echo.
 echo   DB User : %DB_USER%
 echo   DB Name : %DB_NAME%
@@ -114,7 +119,7 @@ echo       OK
 
 REM ── Step 10: Load random data ─────────────────────────────────
 echo [10/10] Loading random data (sql\load.sql)...
-mysql %MYSQL_AUTH% %DB_NAME% < sql\load.sql
+mysql %MYSQL_AUTH% %MYSQL_PERF% %DB_NAME% < sql\load.sql
 IF %ERRORLEVEL% NEQ 0 (echo ERROR: load.sql failed & pause & exit /b 1)
 echo       OK
 
