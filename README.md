@@ -132,3 +132,48 @@ DB_NAME=hygeiopolis_db
 ```
 
 `npm run dev` is an alias for `npm start`; there is no build step.
+
+### UI features
+ 
+- **Dashboard** — live stats (patients, active/completed hospitalizations, beds, staff)
+- **ΤΕΠ / Triage** — priority queue (urgency + FIFO); admit to ward directly
+  from the queue with department / bed / attending doctor selection
+- **Patients / Doctors / Hospitalizations / Prescriptions** — full CRUD views
+- **Reviews** — post-discharge patient evaluations (Likert scale, per hospitalization and per doctor)
+- **Shift Calendar** — monthly calendar with per-day shift details; manual
+  and auto-fill shift creation enforcing the 3/6/2 minimum staffing rule
+- **Queries Q1–Q15b** — run all 15 queries live with parameter inputs; Q04
+  and Q06 variants include an ⚡ **EXPLAIN ANALYZE** button that renders the
+  execution plan inline
+- **Admin** — cascade-safe entity deletion, shift management
+ 
+## Design assumptions
+ 
+| # | Assumption |
+|---|---|
+| 1 | A triage record with `outcome = NULL` is visible in the queue. `outcome = 'Admitted'` links to a hospitalization; `outcome = 'Discharged'` means the patient left with instructions. |
+| 2 | The 3/6/2 minimum staffing rule (≥3 doctors, ≥6 nurses, ≥2 admin per shift) is enforced at three layers: frontend validation, server-side pre-check before the transaction, and a BEFORE DELETE trigger that prevents reducing a shift below minimum. It cannot be enforced by BEFORE INSERT because the full roster is not known at insert time. |
+| 3 | Images are stored as external URLs (Unsplash CDN), not as BLOBs, to keep the database size manageable. |
+| 4 | Doctor deletion is blocked if the doctor has any clinical history (procedures, prescriptions, lab tests, shifts) in order to preserve audit trail integrity. |
+| 5 | For Q14, the fixture generator uses a pool of 25 common ICD-10 codes (`HOSP_ICD_POOL`) so that codes repeat enough across years to satisfy the ≥5 per year constraint. The full 11,007-code catalog remains in the database as reference data. |
+| 6 | The `@load_mode` session variable disables expensive trigger subqueries during bulk load. `generate_data.py` guarantees data integrity, so the bypass is safe. All triggers fire normally during regular application use (`@load_mode` defaults to NULL / 0). |
+
+ 
+## Use of AI tools
+ 
+This project was developed with the assistance of **Claude** (Anthropic,
+Claude Sonnet 4.6) as well as **Gemini** (Google, Gemini Pro 3.1). Specifically, the tools contributed to the following:
+ 
+- **Bug detection and fixing** — SQL trigger escaping issues, Node.js named
+  placeholder errors, query logic bugs (e.g. Q15 implicit grouping)
+- **Performance optimization** — bulk INSERT generation, `@load_mode` trigger
+  bypass, `run_all.bat` pipeline optimizations
+- **Feature implementation** — admit-from-triage modal, EXPLAIN ANALYZE
+  endpoint and UI button, shift auto-fill, calendar tab merge
+- **Report writing** — query explanations, EXPLAIN ANALYZE comparison tables,
+  trigger and index documentation sections
+
+All generated code and content was reviewed, understood and validated by the
+team before submission. Architectural decisions (schema design, trigger
+strategy, 3-layer enforcement, index selection) were discussed interactively,
+with the team making all final choices.
